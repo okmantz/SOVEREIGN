@@ -1,0 +1,10 @@
+{
+  "name": "Outreach-led lead-gen pilot",
+  "thesis": "Sell booked-appointment lead generation to local service businesses via direct outreach.",
+  "budgetCents": 10000,
+  "maxLossCents": 10000,
+  "experiment": { "touches": 150, "successIf": "at least 3 replies asking for pricing", "withinDays": 7 },
+  "crew": ["researcher", "builder", "critic", "outreach", "finance"],
+  "pipeline": ["inbox", "lab", "shop", "review", "market", "connector:email", "outbox"],
+  "humanGates": ["first outreach batch", "any budget increase", "accepting a paying client"]
+}
