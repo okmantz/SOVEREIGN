@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Evolution Lab — T58 Quant Algo Backtester</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/static/icon-192.png">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<meta name="theme-color" content="#05070a">
+<link rel="stylesheet" href="/static/theme.css">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  .card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+  .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin: 0 0 10px; }
+  .card p.help { font-size: 12px; color: #888; margin: 0 0 10px; line-height: 1.5; }
+  label { display: block; font-size: 13px; color: #ccc; margin: 10px 0 4px; }
+  input[type=number], select { width: 100%; padding: 11px 12px; border-radius: 8px; border: 1px solid var(--border-light); background: var(--panel-3); color: var(--text); font-size: 15px; }
+  input[type=file] { width: 100%; color: #ccc; }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  .submit-btn { width: 100%; padding: 15px; border-radius: 10px; border: 1px solid var(--teal); background: var(--teal); color: #04120e; font-size: 16px; font-weight: 700; margin-top: 6px; box-shadow: 0 0 22px rgba(53,224,176,0.35); }
+  .stop-btn { width: 100%; padding: 15px; border-radius: 10px; border: 1px solid #6b2323; background: #3a1616; color: #ffb4b4; font-size: 16px; font-weight: 700; margin-top: 6px; }
+  .reset-btn { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-light); background: var(--panel-3); color: #ccc; font-size: 13px; margin-top: 8px; }
+  .error { background: #2a1414; border: 1px solid #6b2323; color: #ffb4b4; padding: 12px; border-radius: 10px; margin-bottom: 14px; font-size: 14px; }
+  .badge { font-size: 10px; padding: 3px 8px; border-radius: 6px; }
+  .badge.running { background: #123b1c; color: #7ee08a; }
+  .badge.stopped { background: #262626; color: #999; }
+  #log { background: #0d0d0d; border: 1px solid var(--border-light); border-radius: 8px; padding: 10px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #ccc; max-height: 220px; overflow-y: auto; white-space: pre-wrap; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  th, td { padding: 6px 4px; border-bottom: 1px solid var(--border-light); text-align: left; }
+  th { color: #888; font-weight: 600; text-transform: uppercase; font-size: 10px; }
+  .table-scroll { overflow-x: auto; max-height: 640px; overflow-y: auto; }
+  .lb-detail-btn, .lb-promote-btn { font-size: 11px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-light); background: var(--panel-3); color: #ccc; }
+  .lb-promote-btn { border-color: var(--teal); color: var(--teal); }
+  .lb-promote-btn[disabled] { opacity: .5; }
+  .lb-detail-row td { background: #0d0d0d; white-space: pre-wrap; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #ccc; }
+  .journal-entry { font-size: 12px; color: #ccc; border-left: 2px solid var(--border-light); padding-left: 8px; margin-bottom: 8px; white-space: pre-wrap; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .checkbox-row input { width: auto; }
+</style>
+</head>
+<body>
+{% set active_page = active_page|default('evolution') %}
+<div class="t58-shell">
+{% include '_sidebar.html' %}
+<div class="t58-main">
+<div class="t58-page-header">
+  <h1>Evolution lab</h1>
+  <p>An open-ended search across every strategy family, generation after generation, until you click STOP. Progress checkpoints to disk after every generation -- STOP then START again continues where it left off (same data) instead of starting over.</p>
+</div>
+
+{% if error %}
+<div class="error">{{ error }}</div>
+{% endif %}
+
+<div class="card">
+  <h2>Status <span class="badge {{ 'running' if running else 'stopped' }}" id="status-badge">{{ 'RUNNING' if running else 'STOPPED' }}</span></h2>
+  <div id="log">Loading&hellip;</div>
+  <p id="next-step" style="display:none; margin-top:10px; padding:10px 12px; border-radius:8px; background:#152615; color:#b7e8b7; font-size:13px;"></p>
+  <div id="controls" style="margin-top:10px;">
+    {% if running %}
+    <form method="post" action="/evolution/stop"><button class="stop-btn" type="submit">Stop</button></form>
+    {% else %}
+    <form method="post" action="/evolution/reset" onsubmit="return confirm('Discard the saved checkpoint and start completely fresh next time?');">
+      <button class="reset-btn" type="submit">Reset checkpoint (start fresh next run)</button>
+    </form>
+    <form method="post" action="/evolution/reset-family-health" onsubmit="return confirm('Archive the accumulated family-health history (past Search Lab + Evolution Lab dead-end tracking)? Every family gets a clean slate again -- nothing tested since a fix or a crash will unfairly count against it. This is recoverable (old files are renamed, not deleted), not destructive.');" style="margin-top:6px;">
+      <button class="reset-btn" type="submit">Reset family-health history (clear dead-end blacklist)</button>
+    </form>
+    {% endif %}
+  </div>
+
+{% set progress_url = '/evolution/status.json' %}{% set progress_key = 'progress' %}
+{% include '_phase_banner.html' %}
+{% set swarm_url = '/api/telemetry/swarm/evolution' %}
+{% include '_swarm_panel.html' %}
+</div>
+
+<div class="card" id="distribution-card" style="display:none;">
+  <h2>Optimization results -- distribution, not just a winner</h2>
+  <p style="font-size:12.5px;color:#999;margin:0 0 12px;" id="d-tested"></p>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th></th><th>Median</th><th>Best (raw optimum)</th></tr></thead>
+      <tbody id="d-rows"></tbody>
+    </table>
+  </div>
+  <p style="font-size:12.5px;color:#999;margin-top:12px;" id="d-robust"></p>
+  <p style="font-size:11.5px;color:#777;margin-top:8px;">
+    "Median" is across every candidate on this run's own leaderboard -- not just the top one. "Candidates
+    tested" is generations &times; population size, an approximation of the total funnel size, not an
+    exact count. "Robust candidates" is a simple, transparent count of genuinely different genomes that
+    cleared 80% of the best fitness found -- a rough sense of how wide the good region of the parameter
+    space is, not a formal robustness test.
+  </p>
+</div>
+
+<div class="card" id="leaderboard-card" style="display:none;">
+  <h2>Leaderboard (generation <span id="gen-num">0</span>)</h2>
+  <p id="loop-mode-note" style="display:none; font-size:12px; margin:0 0 10px; padding:8px 10px; border-radius:6px; background:#1a2f1a; color:#a8e8a8;"></p>
+  <p id="family-health-note" style="display:none; font-size:12px; margin:0 0 10px;"></p>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>#</th><th>Candidate</th><th>Net profit</th><th>PF</th><th>Eval pass %</th><th>Payout %</th><th>OOS %</th><th></th></tr></thead>
+      <tbody id="leaderboard-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" id="journal-card" style="display:none;">
+  <h2>Journal (recent)</h2>
+  <div id="journal-body"></div>
+</div>
+
+{% if not running %}
+{% if alpaca_notice %}
+<div class="{{ 'error' if alpaca_notice_kind == 'error' else ('warning' if alpaca_notice_kind == 'warning' else 'notice') }}">{{ alpaca_notice }}</div>
+{% endif %}
+
+{% set alpaca_return_to = 'evolution_form' %}
+{% include "_alpaca_fetch_section.html" %}
+
+<form method="post" action="/evolution/start" enctype="multipart/form-data">
+  <div class="card">
+    <h2>1. Market Data</h2>
+    {% if stored_datasets %}
+    <label>Use a previously stored dataset</label>
+    <select name="existing_dataset">
+      <option value="">— none, I'm uploading a new file below —</option>
+      {% if dataset_groups %}
+      {% for g in dataset_groups %}
+      <optgroup label="{{ g.instrument }}">
+        {% for file in g.files %}
+        <option value="{{ file.full_name }}">{{ file.name }}{{ ' — empty' if file.empty else '' }}</option>
+        {% endfor %}
+      </optgroup>
+      {% endfor %}
+      {% else %}
+      {% for ds in stored_datasets %}
+      <option value="{{ ds.name }}">{{ ds.name }}</option>
+      {% endfor %}
+      {% endif %}
+    </select>
+    {% endif %}
+    <label>Or upload a new CSV</label>
+    <input type="file" name="csv_file" accept=".csv,.tsv,.txt,.parquet,.zip,.7z">
+  </div>
+
+  <div class="card">
+    <h2>2. Prop account &amp; risk (this run searches and scores against exactly these numbers)</h2>
+    <p class="help">
+      Same field names as Full Pipeline / Run &amp; Report, so a candidate this lab promotes gets checked
+      by Full Pipeline against the same rules it was found under -- set your real prop-firm account size,
+      profit target, drawdown limits, and per-trade risk here before starting. Leaving these at the
+      defaults below silently evaluates every candidate against a generic $100k / 8% / 5% / 10% / 1%-risk
+      account instead of the one you actually trade.
+    </p>
+    <div class="row">
+      <div>
+        <label>Prop firm preset (optional shortcut)</label>
+        <select id="evo_prop_preset_select" onchange="evoApplyPropPreset(this.value)">
+          <option value="">-- or enter rules manually below --</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div><label>Account size ($, prop rules)</label><input type="number" name="account_size" id="evo_account_size" value="100000"></div>
+      <div><label>Initial balance ($, kept in sync with account size above)</label><input type="number" name="initial_balance" id="evo_initial_balance" value="100000"></div>
+    </div>
+    <div class="row">
+      <div><label>Evaluation profit target (%)</label><input type="number" step="0.1" name="profit_target" value="8"></div>
+      <div><label>Daily loss limit (%)</label><input type="number" step="0.1" name="daily_loss" value="5"></div>
+    </div>
+    <div class="row">
+      <div><label>Max drawdown (%)</label><input type="number" step="0.1" name="max_dd" value="10"></div>
+      <div><label>Max trades/day</label><input type="number" name="max_trades_day" value="10"></div>
+    </div>
+    <div class="row">
+      <div><label>Risk mode</label>
+        <select name="risk_mode"><option value="percent">% of balance</option><option value="fixed">Fixed $</option></select>
+      </div>
+      <div><label>Risk per trade (% or $, per Risk mode above)</label><input type="number" step="0.1" name="risk_value" value="1.0"></div>
+    </div>
+    <div class="row">
+      <div><label>Commission per trade ($)</label><input type="number" step="0.01" name="commission" id="evo_commission_field" value="0"></div>
+      <div><label>Slippage (pips)</label><input type="number" step="0.1" name="slippage_pips" value="0.5"></div>
+    </div>
+    <div class="row">
+      <div><label>Spread (pips)</label><input type="number" step="0.1" name="spread_pips" value="1.0"></div>
+      <div><label>Pip size (e.g. ES1! futures = 1.0, FX = 0.0001)</label><input type="number" step="0.0001" name="pip_size" id="evo_pip_size_field" value="0.0001"></div>
+    </div>
+    <button type="button" onclick="evoDetectPipSize()" style="margin-top:6px;background:none;border:1px solid var(--border-light);color:var(--teal);padding:9px 12px;border-radius:8px;font-size:13px;width:100%;">Detect pip size from data</button>
+    <p id="evo_pip_detect_status" style="font-size:12px;margin-top:6px;"></p>
+    <div class="row" style="margin-top:8px;">
+      <div><label>Or pick a known instrument (auto-fills pip size + $/point)</label>
+        <select id="evo_instrument_select" onchange="t58ApplyInstrumentSpec({selectEl:this, pipFieldId:'evo_pip_size_field', contractFieldId:'evo_contract_size_field', commissionFieldId:'evo_commission_field', statusId:'evo_pip_detect_status'})">
+          <option value="">(none -- set manually)</option>
+        </select>
+      </div>
+      <div><label>Contract $/point (blank = not lot-rounded)</label><input type="number" step="0.01" name="contract_size" id="evo_contract_size_field" value=""></div>
+    </div>
+    <script>document.addEventListener('DOMContentLoaded', function () { t58PopulateInstrumentPicker('evo_instrument_select'); });</script>
+  </div>
+
+  <div class="card">
+    <h2>3. Evolution settings</h2>
+    <div class="row">
+      <div><label>Population size</label><input type="number" name="population_size" value="60"></div>
+      <div><label>Elites kept per generation</label><input type="number" name="elite_keep" value="10"></div>
+    </div>
+    <div class="row">
+      <div><label>Monte Carlo sims (per full eval)</label><input type="number" name="mc_sims" value="1000"></div>
+      <div><label>Optimizer mode</label>
+        <select name="optimizer_mode">
+          {% for key, label in optimizer_modes.items() %}
+          <option value="{{ key }}" {{ 'selected' if key == 'genetic' else '' }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <p style="font-size:12px;color:#888;margin-top:4px;">All three run the exact same generation-by-generation search per family -- only how each family's next children are proposed differs. TPE/CMA-ES need the optuna / cma packages on the server; you'll get a clear error here if one isn't installed.</p>
+      </div>
+      <div><label>Max generations (blank = run until STOP)</label><input type="number" name="max_generations" value=""></div>
+    </div>
+    <div class="row">
+      <div style="flex:1;"><label>Optimizer mode (elite breeding)</label>
+        <select name="optimizer_mode">
+          {% for key, label in optimizer_modes.items() %}
+          <option value="{{ key }}" {{ 'selected' if key == 'genetic' else '' }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <p style="font-size:12px;color:#888;margin-top:4px;">"Genetic" is the existing plain-mutation/GP-surrogate breeding, unchanged. TPE/CMA-ES replace it with one optimizer PER FAMILY (each family has its own gene count) -- same generate/filter/robustness/OOS/MC/prop-sim funnel either way. TPE/CMA-ES need the optuna / cma packages installed; you'll get a clear error here if one isn't.</p>
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Loop mode: stop automatically once a candidate clears (blank = disabled, run until STOP/max generations)</label>
+        <input type="number" step="0.1" name="target_eval_pass_pct" value="" placeholder="e.g. 60">
+      </div>
+      <div>
+        <label>Loop mode target metric</label>
+        <select name="target_metric">
+          <option value="cpcv_oos_eval_pass_probability">CPCV out-of-sample eval-pass probability (honest, recommended)</option>
+          <option value="eval_pass_probability">Raw in-sample eval-pass probability (Monte Carlo only)</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="margin-top:14px;">
+      <label>Optimization goal</label>
+      <select name="fitness_goal_preset" id="fitness_goal_preset" onchange="t58ToggleCustomGoalWeights()">
+        <option value="balanced">Balanced (default -- pass probability x payout probability x robustness x OOS consistency / drawdown)</option>
+        <option value="eval_pass_rate">Maximize eval pass rate</option>
+        <option value="first_payout">Maximize first payout probability</option>
+        <option value="net_profit">Maximize net profit</option>
+        <option value="robustness">Maximize robustness / OOS consistency</option>
+        <option value="low_drawdown">Minimize drawdown</option>
+        <option value="custom">Custom weights...</option>
+      </select>
+      <p style="font-size:12px;color:#888;margin:4px 0 0;">
+        What the lab ranks/selects candidates by. "Balanced" is the original scoring formula; the others
+        emphasize one thing Owen cares about more than the others without ignoring the rest.
+      </p>
+      <div id="custom-goal-weights" style="display:none;margin-top:8px;">
+        <div class="row">
+          <div><label>Eval pass probability weight</label><input type="number" step="0.1" min="0" name="goal_w_pass_probability" value="1.0"></div>
+          <div><label>First payout probability weight</label><input type="number" step="0.1" min="0" name="goal_w_payout_probability" value="1.0"></div>
+        </div>
+        <div class="row">
+          <div><label>Robustness weight</label><input type="number" step="0.1" min="0" name="goal_w_robustness" value="1.0"></div>
+          <div><label>Walk-forward (OOS) consistency weight</label><input type="number" step="0.1" min="0" name="goal_w_oos_consistency" value="1.0"></div>
+        </div>
+        <div class="row">
+          <div><label>Drawdown penalty weight</label><input type="number" step="0.1" min="0" name="goal_w_drawdown" value="1.0"></div>
+          <div><label>Net profit weight (additive bonus, small e.g. 0.01-0.05)</label><input type="number" step="0.01" min="0" name="goal_w_net_profit" value="0.0"></div>
+        </div>
+        <p style="font-size:12px;color:#888;margin:4px 0 0;">
+          1.0 = default weighting for that factor, 0.0 = ignore it entirely, higher = weight it more heavily
+          than the others. Net profit is additive (raw dollars x weight), not an exponent like the rest,
+          since it has no natural 0..1 ceiling.
+        </p>
+      </div>
+    </div>
+    <script>
+      function t58ToggleCustomGoalWeights() {
+        const sel = document.getElementById('fitness_goal_preset');
+        document.getElementById('custom-goal-weights').style.display = (sel.value === 'custom') ? 'block' : 'none';
+      }
+    </script>
+
+    <label style="margin-top:10px;">Strategy families to search (none checked = every family)</label>
+    <div class="row" style="margin:2px 0 8px;">
+      <button type="button" class="submit-btn" style="padding:6px 10px;font-size:12px;" onclick="t58SetCheckboxes('evo-families-list', true)">Select All</button>
+      <button type="button" class="submit-btn" style="padding:6px 10px;font-size:12px;" onclick="t58SetCheckboxes('evo-families-list', false)">Clear All</button>
+    </div>
+    <div id="evo-families-list">
+    {% for fam in families %}
+    <div class="checkbox-row"><input type="checkbox" name="families" value="{{ fam.name }}" id="fam_{{ loop.index }}"><label for="fam_{{ loop.index }}" style="margin:0;">{{ fam.description }} [{{ fam.name }}]</label></div>
+    {% endfor %}
+    </div>
+    <div class="checkbox-row" style="margin-top:10px;"><input type="checkbox" name="save_to_library" checked><label style="margin:0;">Save new elites to the Strategy Library (tagged "draft")</label></div>
+    <div class="checkbox-row"><input type="checkbox" name="resume_from_checkpoint" checked><label style="margin:0;">Resume from checkpoint if one exists for this data</label></div>
+    <div class="checkbox-row"><input type="checkbox" name="adaptive_risk_enabled"><label style="margin:0;">Enable adaptive, limit-aware position sizing for every candidate evaluated</label></div>
+    <div class="checkbox-row" style="background:rgba(120,200,120,0.08);border:1px solid rgba(120,200,120,0.35);border-radius:8px;padding:8px 10px;"><input type="checkbox" name="reset_on_breach" checked><label style="margin:0;">Reset-on-breach: score every candidate on the basis that a blown account gets a fresh eval and keeps going, not a dead end (recommended -- uncheck to optimize on a single account with no reset)</label></div>
+  </div>
+
+  <div class="card">
+    <h2>3b. Timeframes to test (optional)</h2>
+    <p class="help">
+      Leave blank to evolve only against the loaded data's own native bar spacing, as before. Fill in a
+      list (e.g. "5m, 15m, 30m, 1h, 4h") and the dataset above -- typically your finest-grained one, e.g.
+      1-minute -- gets resampled into each one, with an independent Evolution Lab runner started per
+      timeframe. Results open on the Multi-Instrument Evolution job page instead of this page's own
+      single-runner status below, since this is now several independent runs.
+    </p>
+    <input type="text" name="expand_timeframes" placeholder="e.g. 5m, 15m, 30m, 1h, 4h">
+  </div>
+
+  <button class="submit-btn" type="submit">Start Evolution Lab</button>
+</form>
+{% endif %}
+
+</div>
+</div>
+
+<script>
+  const EVO_PROP_PRESETS = {{ (prop_presets_json | default('[]')) | safe }};
+  (function populateEvoPropPresetDropdown() {
+    const select = document.getElementById('evo_prop_preset_select');
+    if (!select) return;
+    EVO_PROP_PRESETS.forEach((p) => {
+      const opt = document.createElement('option');
+      opt.value = JSON.stringify(p);
+      opt.textContent = p.label;
+      select.appendChild(opt);
+    });
+  })();
+
+  function evoApplyPropPreset(value) {
+    if (!value) return;
+    const p = JSON.parse(value);
+    const form = document.getElementById('evo_prop_preset_select').closest('form');
+    if (!form) return;
+    const set = (name, val) => { const el = form.querySelector(`[name="${name}"]`); if (el) { el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); } };
+    set('account_size', p.account_size);
+    set('profit_target', p.evaluation_profit_target_pct);
+    set('daily_loss', p.daily_loss_limit_pct);
+    set('max_dd', p.max_drawdown_pct);
+  }
+
+  function evoDetectPipSize() {
+    const statusEl = document.getElementById('evo_pip_detect_status');
+    const fileInput = document.querySelector('input[name="csv_file"]');
+    const datasetSelect = document.querySelector('select[name="existing_dataset"]');
+    const fd = new FormData();
+    let haveSource = false;
+    if (fileInput && fileInput.files && fileInput.files.length) {
+      for (const f of fileInput.files) fd.append('csv_file', f);
+      haveSource = true;
+    }
+    if (datasetSelect && datasetSelect.value) {
+      fd.append('existing_dataset', datasetSelect.value);
+      haveSource = true;
+    }
+    if (!haveSource) {
+      statusEl.style.color = '#ffcf7a';
+      statusEl.textContent = 'Select a market data CSV or a stored dataset in Step 1 first.';
+      return;
+    }
+    statusEl.style.color = '#888';
+    statusEl.textContent = 'Detecting...';
+    fetch('/data/detect-pip-size', { method: 'POST', body: fd })
+      .then(r => r.json().then(data => ({ ok: r.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok || data.error) {
+          statusEl.style.color = '#ff9d9d';
+          statusEl.textContent = data.error || "Couldn't detect pip size.";
+          return;
+        }
+        document.getElementById('evo_pip_size_field').value = data.pip_size;
+        statusEl.style.color = '#b4ffcb';
+        statusEl.textContent = data.message;
+      })
+      .catch(err => {
+        statusEl.style.color = '#ff9d9d';
+        statusEl.textContent = "Couldn't detect: " + err;
+      });
+  }
+</script>
+
+<script>
+  const fmt = (v, d) => (v === null || v === undefined || Number.isNaN(v)) ? '—' : Number(v).toFixed(d === undefined ? 2 : d);
+  const money = (v) => (v === null || v === undefined || Number.isNaN(v)) ? '—' : '$' + Number(v).toLocaleString(undefined, {maximumFractionDigits: 0});
+
+  // Both fields below are already 0..100 percentages straight from
+  // MonteCarloResult -- do not multiply by 100 again here (that exact
+  // mistake, in the desktop app's own detail popup, is what made a real
+  // 5.5% pass probability show up as "550%"; fmt()/money() above are
+  // fine as-is, this note is just so nobody "fixes" this back to *100).
+  let _lbCache = [];
+
+  function renderLeaderboard(rows) {
+    _lbCache = rows;
+    const tbody = document.getElementById('leaderboard-body');
+    tbody.innerHTML = '';
+    rows.forEach((c, i) => {
+      const stats = c.stats || {};
+      const mc = c.mc_summary || {};
+      const oos = c.cpcv_oos_eval_pass_probability;
+      const rawPass = mc.evaluation_pass_probability;
+      const bigGap = typeof oos === 'number' && typeof rawPass === 'number' && (rawPass - oos) > 15;
+      const oosCell = typeof oos === 'number'
+        ? `<span title="${bigGap ? 'Big gap vs. raw eval pass % -- likely overfit, verify with Full Pipeline' : 'Honest, held-out CPCV estimate'}" style="${bigGap ? 'color:#ff9d9d;font-weight:700;' : ''}">${fmt(oos, 1)}%${bigGap ? ' ⚠' : ''}</span>`
+        : '—';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${i + 1}</td><td>${c.candidate_id}</td><td>${money(stats.net_profit)}</td>` +
+        `<td>${fmt(stats.profit_factor)}</td><td>${fmt(mc.evaluation_pass_probability, 1)}%</td>` +
+        `<td>${fmt(mc.first_payout_probability, 1)}%</td><td>${oosCell}</td><td></td>`;
+      const actionCell = tr.lastElementChild;
+      const detailBtn = document.createElement('button');
+      detailBtn.type = 'button';
+      detailBtn.className = 'lb-detail-btn';
+      detailBtn.textContent = 'Details';
+      detailBtn.onclick = () => toggleDetail(i, c);
+      const promoteBtn = document.createElement('button');
+      promoteBtn.type = 'button';
+      promoteBtn.className = 'lb-promote-btn';
+      promoteBtn.textContent = 'Promote';
+      promoteBtn.style.marginLeft = '6px';
+      promoteBtn.onclick = () => promoteCandidate(c.candidate_id, promoteBtn);
+      actionCell.appendChild(detailBtn);
+      actionCell.appendChild(promoteBtn);
+      tbody.appendChild(tr);
+    });
+    document.getElementById('leaderboard-card').style.display = rows.length ? 'block' : 'none';
+  }
+
+  function toggleDetail(i, c) {
+    const tbody = document.getElementById('leaderboard-body');
+    const existing = document.getElementById('lb-detail-' + i);
+    if (existing) { existing.remove(); return; }
+    // Close any other open detail row first, same one-at-a-time feel as
+    // the desktop app's single detail popup.
+    tbody.querySelectorAll('.lb-detail-row').forEach(r => r.remove());
+    const stats = c.stats || {};
+    const mc = c.mc_summary || {};
+    const fitness = c.fitness || {};
+    const lines = [
+      `Family: ${(c.meta || {}).family || '?'}`,
+      `Final PROP FITNESS score: ${fmt(fitness.final_score)}`,
+      `Pass probability (fitness): ${fmt((fitness.pass_probability || 0) * 100, 1)}%`,
+      `Payout probability (fitness): ${fmt((fitness.payout_probability || 0) * 100, 1)}%`,
+      `Robustness: ${fmt(fitness.robustness)}   OOS consistency: ${fmt(fitness.oos_consistency)}`,
+      '',
+      `Total trades: ${stats.total_trades ?? 'n/a'}   Win rate: ${fmt(stats.win_rate, 1)}%`,
+      `Net profit: ${money(stats.net_profit)}   Profit factor: ${fmt(stats.profit_factor)}`,
+      `Sharpe: ${fmt(stats.sharpe_ratio)}   Max drawdown: ${fmt(stats.max_drawdown_pct, 1)}%`,
+      '',
+      `Monte Carlo eval pass probability: ${fmt(mc.evaluation_pass_probability, 1)}% (IN-SAMPLE -- same data the GA searched)`,
+      `Monte Carlo first payout probability: ${fmt(mc.first_payout_probability, 1)}%`,
+      `CPCV out-of-sample eval pass probability: ${typeof c.cpcv_oos_eval_pass_probability === 'number' ? fmt(c.cpcv_oos_eval_pass_probability, 1) + '%' : 'n/a'}${
+        typeof c.cpcv_oos_eval_pass_probability === 'number' && typeof mc.evaluation_pass_probability === 'number' && (mc.evaluation_pass_probability - c.cpcv_oos_eval_pass_probability) > 15
+          ? '  <-- big gap vs. in-sample number above; likely overfit, verify with Full Pipeline' : ''
+      }`,
+      '',
+      'Config:',
+      JSON.stringify((c.spec || {}).config || {}, null, 2),
+    ];
+    const tr = document.createElement('tr');
+    tr.className = 'lb-detail-row';
+    tr.id = 'lb-detail-' + i;
+    const td = document.createElement('td');
+    td.colSpan = 8;
+    td.textContent = lines.join('\n');
+    tr.appendChild(td);
+    const rows = tbody.querySelectorAll('tr');
+    rows[i].insertAdjacentElement('afterend', tr);
+  }
+
+  function promoteCandidate(candidateId, btn) {
+    const row = _lbCache.find(c => c.candidate_id === candidateId);
+    let forced = false;
+    if (row) {
+      const rawPass = (row.mc_summary || {}).evaluation_pass_probability;
+      const oos = row.cpcv_oos_eval_pass_probability;
+      if (typeof rawPass === 'number' && typeof oos === 'number' && (rawPass - oos) > 15) {
+        const proceed = confirm(
+          `This candidate's raw (in-sample) eval pass probability is ${rawPass.toFixed(1)}%, but the ` +
+          `honest, held-out CPCV estimate is only ${oos.toFixed(1)}% -- a ${(rawPass - oos).toFixed(1)}-point gap. ` +
+          `That pattern (looks great in-sample, much weaker out-of-sample) is the classic signature of the GA ` +
+          `having fit this dataset's noise rather than a real edge, and is exactly what tends to come back as a ` +
+          `much lower pass/payout rate out of Full Pipeline's stricter walk-forward + holdout validation.\n\n` +
+          `Promote it anyway? (Full Pipeline will still re-validate it properly either way -- this is just an ` +
+          `early warning so you don't have to wait for that run to find out.)`
+        );
+        if (!proceed) return;
+        forced = true;
+      }
+    }
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = '...';
+    const body = new URLSearchParams({ candidate_id: candidateId });
+    if (forced) body.set('force', '1');
+    fetch('/evolution/promote', { method: 'POST', body })
+      .then(r => r.json())
+      .then(data => {
+        btn.disabled = false;
+        btn.textContent = data.ok ? 'Promoted' : 'Failed';
+        if (!data.ok) { alert('Could not promote: ' + (data.error || 'unknown error')); btn.textContent = original; }
+        if (data.ok && data.next_step) {
+          const nextStepEl = document.getElementById('next-step');
+          nextStepEl.textContent = data.next_step;
+          nextStepEl.style.display = 'block';
+        }
+      })
+      .catch(() => { btn.disabled = false; btn.textContent = original; alert('Could not reach the server.'); });
+  }
+
+  function renderJournal(entries) {
+    const body = document.getElementById('journal-body');
+    body.innerHTML = '';
+    (entries || []).slice().reverse().forEach(e => {
+      const div = document.createElement('div');
+      div.className = 'journal-entry';
+      div.textContent = e;
+      body.appendChild(div);
+    });
+    document.getElementById('journal-card').style.display = (entries || []).length ? 'block' : 'none';
+  }
+
+  function poll() {
+    fetch('/evolution/status.json')
+      .then(r => r.json())
+      .then(data => {
+        const badge = document.getElementById('status-badge');
+        badge.textContent = data.running ? 'RUNNING' : 'STOPPED';
+        badge.className = 'badge ' + (data.running ? 'running' : 'stopped');
+        document.getElementById('log').textContent = (data.log || []).slice(-100).join('\n') || 'No activity yet.';
+        document.getElementById('log').scrollTop = document.getElementById('log').scrollHeight;
+        if (data.started) {
+          document.getElementById('gen-num').textContent = data.generation;
+          renderLeaderboard(data.leaderboard || []);
+          renderJournal(data.journal || []);
+          const d = data.distribution_summary;
+          if (d) {
+            document.getElementById('distribution-card').style.display = 'block';
+            document.getElementById('d-tested').textContent =
+              `~${d.candidates_tested} candidates tested (generations \u00d7 population size), ${d.candidates_with_trades} on the leaderboard produced at least one trade.`;
+            const pct = (v) => (v === null || v === undefined || isNaN(v)) ? '\u2014' : `${v.toFixed(1)}%`;
+            let rows = '';
+            rows += `<tr><td>Eval pass probability</td><td>${pct(d.eval_pass_probability.median)}</td><td>${pct(d.eval_pass_probability.best)}</td></tr>`;
+            rows += `<tr><td>First payout probability</td><td>${pct(d.first_payout_probability.median)}</td><td>${pct(d.first_payout_probability.best)}</td></tr>`;
+            if (d.max_drawdown_pct) {
+              rows += `<tr><td>Max drawdown</td><td>${pct(d.max_drawdown_pct.median)}</td><td>${pct(d.max_drawdown_pct.best)} (lowest)</td></tr>`;
+            }
+            document.getElementById('d-rows').innerHTML = rows;
+            document.getElementById('d-robust').textContent =
+              `${d.robust_candidates} robust candidate(s) cleared ${Math.round(d.robust_threshold_fraction_of_best * 100)}% of the best fitness found.`;
+          }
+        }
+        const fh = data.family_health;
+        const loopEl = document.getElementById('loop-mode-note');
+        if (data.target_reached) {
+          loopEl.textContent =
+            `Loop mode target reached: candidate ${data.target_reached_candidate_id} cleared ` +
+            `${data.target_eval_pass_pct}% -- Evolution Lab stopped itself. Review the leaderboard and promote it.`;
+          loopEl.style.display = 'block';
+        } else if (data.target_eval_pass_pct) {
+          loopEl.textContent = `Loop mode active -- will stop automatically once a candidate clears ${data.target_eval_pass_pct}%.`;
+          loopEl.style.color = '#a8c8e8';
+          loopEl.style.background = '#1a2530';
+          loopEl.style.display = 'block';
+        } else {
+          loopEl.style.display = 'none';
+        }
+        const fhEl = document.getElementById('family-health-note');
+        if (fh && fh.applied && (fh.excluded || []).length) {
+          fhEl.textContent =
+            `${fh.excluded.length} famil${fh.excluded.length === 1 ? 'y' : 'ies'} flagged dead-end across past runs ` +
+            `(tested 30+ times, zero successes): ${fh.excluded.join(', ')}. ${fh.active_family_count} famil` +
+            `${fh.active_family_count === 1 ? 'y' : 'ies'} currently active this run.`;
+          fhEl.style.color = '#e8d17e';
+          fhEl.style.display = 'block';
+        } else {
+          fhEl.style.display = 'none';
+        }
+        const nextStepEl = document.getElementById('next-step');
+        if (data.next_step) {
+          nextStepEl.textContent = data.next_step;
+          nextStepEl.style.display = 'block';
+        } else {
+          nextStepEl.style.display = 'none';
+        }
+        // Reload the page if run state flips, so the start form / stop button swap correctly.
+        if (window._t58EvoRunning !== undefined && window._t58EvoRunning !== data.running) {
+          window.location.reload();
+        }
+        window._t58EvoRunning = data.running;
+        setTimeout(poll, 2500);
+      })
+      .catch(() => setTimeout(poll, 4000));
+  }
+  poll();
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+  }
+</script>
+
+<script>
+  // RISK-001 fix: "Account size" and "Initial balance" must be the same
+  // dollar account -- the backend already forces this server-side
+  // (app.backtest.risk.with_prop_safety_defaults makes account_size win
+  // if they ever disagree), but syncing them live here means the person
+  // never sees the two numbers disagree in the first place. RISK-001-SYNC
+  (function () {
+    const a = document.getElementById('evo_account_size');
+    const b = document.getElementById('evo_initial_balance');
+    if (!a || !b) return;
+    a.addEventListener('input', () => { b.value = a.value; });
+    b.addEventListener('input', () => { a.value = b.value; });
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Quick Optimize Job — T58 Quant Algo Backtester</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/static/icon-192.png">
+<meta name="theme-color" content="#05070a">
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/job-theme.css">
+</head>
+<body>
+<header><h1>T58 Quant Algo Backtester — Quick Optimize</h1></header>
+<nav>
+  <a href="/dashboard" class="back-btn">&larr; Back</a>
+  <a href="/quick-optimize">New Run</a>
+</nav>
+<main>
+
+{% if not_found %}
+<div class="error">Job "{{ job_id }}" was not found (the server may have restarted since it ran).</div>
+{% else %}
+
+<div class="card">
+  <h2 id="status-title"><span class="spinner" id="spinner"></span>Quick Optimize running&hellip;</h2>
+  <div id="log">Starting&hellip;</div>
+  <button type="button" id="stop-btn" onclick="stopQuickOptimize()" style="margin-top:12px; padding:10px 22px; border-radius:10px; border:1px solid #6b2323; background:#3a1616; color:#ffb4b4; font-size:14px; font-weight:700; cursor:pointer;">Stop</button>
+</div>
+
+<div id="research-wrap" style="display:none;">
+  <div class="research-banner" id="research-banner"></div>
+  <div class="research-banner-detail" id="research-banner-detail"></div>
+</div>
+
+<div id="verdict-wrap" style="display:none;"><div class="verdict-banner" id="verdict-banner"></div></div>
+
+<div class="card" id="sweep-card" style="display:none;">
+  <h2>Timeframe sweep -- every timeframe tried</h2>
+  <p class="note" id="sweep-note"></p>
+  <table>
+    <thead><tr><th>Timeframe</th><th>Optimized eval pass</th><th>Optimized win rate</th><th>Optimized net profit</th><th>Trades</th></tr></thead>
+    <tbody id="sweep-tbody"></tbody>
+  </table>
+</div>
+
+<div class="card" id="summary-card" style="display:none;">
+  <h2>Baseline vs. optimized</h2>
+  <table>
+    <thead><tr><th></th><th>Baseline</th><th>Optimized</th></tr></thead>
+    <tbody>
+      <tr><td>Trades</td><td id="b-trades">-</td><td id="o-trades">-</td></tr>
+      <tr><td>Net profit</td><td id="b-profit">-</td><td id="o-profit">-</td></tr>
+      <tr><td>Win rate</td><td id="b-winrate">-</td><td id="o-winrate">-</td></tr>
+      <tr><td>Eval pass probability</td><td id="b-evalpass">-</td><td id="o-evalpass">-</td></tr>
+    </tbody>
+  </table>
+  <p class="trade-count-warning" id="s-trade-count-warning" style="display:none;"></p>
+  <p class="note" id="s-library-note"></p>
+</div>
+
+<div class="card" id="diagnostics-card" style="display:none;">
+  <h2>Significance &amp; parsimony (same checks Full Pipeline runs)</h2>
+  <p class="status-msg" id="s-significance-note"></p>
+  <ul class="diagnostics-list" id="s-icir-reasons"></ul>
+  <p class="note" id="s-parsimony-note"></p>
+</div>
+
+<div class="card" id="holdout-card" style="display:none;">
+  <h2>Holdout check (reserved data, never seen by the search above)</h2>
+  <table>
+    <thead><tr><th>Trades</th><th>Net profit</th><th>Win rate</th><th>Eval pass</th><th>Payout</th></tr></thead>
+    <tbody>
+      <tr>
+        <td id="h-trades">-</td><td id="h-profit">-</td><td id="h-winrate">-</td>
+        <td id="h-evalpass">-</td><td id="h-payout">-</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="note" id="s-holdout-note"></p>
+</div>
+
+<div class="error" id="error-card" style="display:none;"></div>
+
+{% endif %}
+</main>
+
+{% if not not_found %}
+<script>
+  const jobId = {{ job_id | tojson }};
+  const fmt = (v, d) => (v === null || v === undefined || Number.isNaN(v)) ? '—' : Number(v).toFixed(d === undefined ? 1 : d);
+  const money = (v) => (v === null || v === undefined || Number.isNaN(v)) ? '—' : '$' + Number(v).toLocaleString(undefined, {maximumFractionDigits: 0});
+  // Point (2) of the 2026-09-17 fix: a percentage built on too few
+  // out-of-sample trades is shown with an explicit qualifier instead of
+  // a bare, confident-looking number -- see MIN_CREDIBLE_OOS_TRADES in
+  // app.orchestration.quick_optimize.
+  const evalPassText = (pct, minTradeCountMet) =>
+    minTradeCountMet ? (fmt(pct) + '%') : (fmt(pct) + '% (unreliable — too few trades)');
+
+  function stopQuickOptimize() {
+    const btn = document.getElementById('stop-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Stopping…'; }
+    fetch(`/quick-optimize/job/${jobId}/stop`, {method: 'POST'}).catch(() => {});
+  }
+
+  function poll() {
+    fetch(`/quick-optimize/job/${jobId}/status.json`)
+      .then(r => r.json())
+      .then(data => {
+        if (!data.found) return;
+        document.getElementById('log').textContent = data.log.filter(Boolean).join('\n');
+        document.getElementById('log').scrollTop = document.getElementById('log').scrollHeight;
+
+        if (data.cancelled) {
+          document.getElementById('spinner').style.display = 'none';
+          document.getElementById('status-title').textContent = 'Quick Optimize stopped';
+          const btn = document.getElementById('stop-btn');
+          if (btn) btn.style.display = 'none';
+          return;
+        }
+
+        if (data.error) {
+          document.getElementById('spinner').style.display = 'none';
+          document.getElementById('status-title').textContent = 'Quick Optimize failed';
+          const ec = document.getElementById('error-card');
+          ec.style.display = 'block';
+          ec.textContent = data.error;
+          const btn = document.getElementById('stop-btn');
+          if (btn) btn.style.display = 'none';
+          return;
+        }
+
+        if (data.done) {
+          document.getElementById('spinner').style.display = 'none';
+          document.getElementById('status-title').textContent = 'Quick Optimize complete';
+          const btn = document.getElementById('stop-btn');
+          if (btn) btn.style.display = 'none';
+
+          if (data.sweep_timeframes) {
+            const sweepCard = document.getElementById('sweep-card');
+            sweepCard.style.display = 'block';
+            document.getElementById('sweep-note').textContent =
+              `Winning timeframe: ${data.best_timeframe} (highest optimized eval-pass probability, win rate as tiebreaker).`;
+            const tbody = document.getElementById('sweep-tbody');
+            tbody.innerHTML = '';
+            Object.keys(data.sweep_timeframes).forEach(label => {
+              const row = data.sweep_timeframes[label];
+              const tr = document.createElement('tr');
+              if (row.is_best) tr.style.fontWeight = '700';
+              tr.innerHTML = `<td>${label}${row.is_best ? ' \u2605' : ''}</td>` +
+                `<td>${fmt(row.optimized_eval_pass_probability)}%</td>` +
+                `<td>${fmt(row.optimized_win_rate)}%</td>` +
+                `<td>${money(row.optimized_net_profit)}</td>` +
+                `<td>${row.optimized_trades}</td>`;
+              tbody.appendChild(tr);
+            });
+          }
+
+          const s = data.summary;
+          if (s) {
+            // Point (1): this banner is unconditional -- it renders for
+            // EVERY completed result, regardless of s.improved or how
+            // strong any number below looks, because Quick Optimize never
+            // independently validates against unseen data on its own.
+            const rwrap = document.getElementById('research-wrap');
+            rwrap.style.display = 'block';
+            document.getElementById('research-banner').textContent = s.result_banner || '⚠️ RESEARCH RESULT — NOT OOS VALIDATED';
+            document.getElementById('research-banner-detail').textContent = s.result_banner_detail ||
+              'Run Full Pipeline to determine whether this result survives unseen-data validation.';
+
+            const wrap = document.getElementById('verdict-wrap');
+            wrap.style.display = 'block';
+            const banner = document.getElementById('verdict-banner');
+            banner.className = 'verdict-banner ' + (s.improved ? 'verdict-yes' : 'verdict-no');
+            banner.textContent = s.improved ? 'Optimized configuration improved on the baseline' : 'Optimized configuration did not clearly improve on the baseline';
+
+            document.getElementById('summary-card').style.display = 'block';
+            document.getElementById('b-trades').textContent = s.baseline_trades;
+            document.getElementById('o-trades').textContent = s.optimized_trades;
+            document.getElementById('b-profit').textContent = money(s.baseline_net_profit);
+            document.getElementById('o-profit').textContent = money(s.optimized_net_profit);
+            document.getElementById('b-winrate').textContent = fmt(s.baseline_win_rate) + '%';
+            document.getElementById('o-winrate').textContent = fmt(s.optimized_win_rate) + '%';
+            document.getElementById('b-evalpass').textContent = fmt(s.baseline_eval_pass_probability) + '%';
+            document.getElementById('o-evalpass').textContent = evalPassText(s.optimized_eval_pass_probability, s.min_trade_count_met);
+            document.getElementById('s-library-note').textContent = s.saved_library_note || '';
+
+            const tcw = document.getElementById('s-trade-count-warning');
+            if (s.trade_count_warning) {
+              tcw.style.display = 'block';
+              tcw.textContent = '⚠️ ' + s.trade_count_warning;
+            }
+
+            // Point (4): significance/parsimony -- same gate Full Pipeline
+            // runs, best-effort (may not have run at all -- see icir_gate_
+            // skip_reason -- in which case the card still shows whatever
+            // it has, e.g. just the parsimony note).
+            if (s.significance_note || s.icir_gate_skip_reason || s.parsimony_note) {
+              document.getElementById('diagnostics-card').style.display = 'block';
+              document.getElementById('s-significance-note').textContent =
+                s.significance_note || s.icir_gate_skip_reason || '';
+              const list = document.getElementById('s-icir-reasons');
+              list.innerHTML = '';
+              (s.icir_gate_reasons || []).forEach(reason => {
+                const li = document.createElement('li');
+                li.textContent = reason;
+                list.appendChild(li);
+              });
+              document.getElementById('s-parsimony-note').textContent = s.parsimony_note || '';
+            }
+
+            // Point (5): holdout section, only when the run actually
+            // reserved one (QuickOptimizeConfig.reserve_holdout).
+            if (s.holdout_enabled) {
+              document.getElementById('holdout-card').style.display = 'block';
+              document.getElementById('h-trades').textContent = s.holdout_trades ?? '—';
+              document.getElementById('h-profit').textContent = money(s.holdout_net_profit);
+              document.getElementById('h-winrate').textContent = fmt(s.holdout_win_rate) + '%';
+              document.getElementById('h-evalpass').textContent = fmt(s.holdout_eval_pass_probability) + '%';
+              document.getElementById('h-payout').textContent = fmt(s.holdout_payout_probability) + '%';
+              document.getElementById('s-holdout-note').textContent = s.holdout_note || '';
+            }
+          }
+          return;
+        }
+        setTimeout(poll, 2000);
+      })
+      .catch(() => setTimeout(poll, 3000));
+  }
+  poll();
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+  }
+</script>
+{% endif %}
+{% include '_project_chat_embed.html' %}
+</body>
+</html>
