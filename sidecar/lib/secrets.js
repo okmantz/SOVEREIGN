@@ -20,10 +20,11 @@ function set(name, value) {
   if (persist()) { const o = read(); o[name] = value; write(o); } else mem[name] = value;
 }
 function has(name) { return !!get(name); }
+function del(name) { if (persist()) { const o = read(); delete o[name]; write(o); } else delete mem[name]; }
 function rotateIngestSecret() {
   const s = crypto.randomBytes(24).toString('hex');
   set('ingest', s);
   return s; // shown to the user exactly once
 }
 
-module.exports = { get, set, has, rotateIngestSecret };
+module.exports = { get, set, has, del, rotateIngestSecret };

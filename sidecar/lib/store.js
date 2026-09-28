@@ -13,8 +13,11 @@ function blank() {
     mission: null,
     settings: {
       provider: { name: 'mock', model: 'mock-1' },
-      // 'ask' = every Director plan needs your approval. 'auto' = Director applies plans itself.
-      policy: { directorStructure: 'ask', spendApprovalCents: 5000, firstOutreachApproval: true },
+      ollama: { host: 'http://127.0.0.1:11434' },
+      openaiCompat: { baseUrl: 'https://api.openai.com/v1' },
+      // directorStructure: 'ask' = every Director plan needs your approval, 'auto' = Director applies plans itself.
+      // connectorWrites:   'ask' = emails, Notion pages, Drive files and calendar events wait for you, 'auto' = send directly.
+      policy: { directorStructure: 'ask', connectorWrites: 'ask', spendApprovalCents: 5000 },
       budgets: { globalDailyCents: 2000, perAgentDailyCents: 500 },
       ingestSecretSet: false
     },

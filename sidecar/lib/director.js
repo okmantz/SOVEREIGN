@@ -55,12 +55,12 @@ function applyPlan(store, actions, { dry = false } = {}) {
       if (a.type !== 'run_task') assert(caps.includes('station.edit'), 'The Director needs a desk in a room that grants station.edit.');
       if (a.type === 'create_room') { const r = station.createRoom(s, a); if (a.ref) refs[a.ref] = r.id; }
       else if (a.type === 'create_desk') { const d = station.createDesk(s, { roomId: rs(a.room), grants: a.grants }); if (a.ref) refs[a.ref] = d.id; }
-      else if (a.type === 'create_agent') { const ag = agents.createAgent(s, { ...a, role: a.role === 'director' ? 'custom' : a.role, deskId: a.desk ? rs(a.desk) : null }); if (a.ref) refs[a.ref] = ag.id; }
+      else if (a.type === 'create_agent') { const ag = agents.createAgent(s, { ...a, role: a.role === 'director' ? 'custom' : a.role, deskId: a.desk ? rs(a.desk) : null }); if (a.ref) refs[a.ref] = ag.id; } // no desk given: the agent is placed at their own desk automatically
       else if (a.type === 'create_hallway') station.createHallway(s, { from: node(a.from), to: node(a.to) });
       else if (a.type === 'create_connector') {
         const near = a.near && s.rooms[rs(a.near)];
-        let c; // "near" puts the port just below a room; if that spot is taken, fall back to auto-placement
-        try { c = station.createConnector(s, near ? { ...a, x: near.x + 1, y: near.y + near.h + 2 } : a); }
+        let c; // "near" puts the port directly below a room; if that spot is taken, fall back to auto-placement
+        try { c = station.createConnector(s, near ? { ...a, x: near.x + 1, y: near.y + near.h } : a); }
         catch (_) { c = station.createConnector(s, { ...a, x: undefined, y: undefined }); }
         if (a.ref) refs[a.ref] = c.id;
       }
@@ -84,7 +84,7 @@ function describe(actions) {
   const nm = (v) => { if (v === 'inbox') return 'Inbox'; if (v === 'outbox') return 'Outbox'; const id = v.split(':').slice(1).join(':'); return names[id] || names[v] || v; };
   return actions.map((a) => ({
     create_room: () => `Room: ${a.name} (${a.kind})`, create_desk: () => `Desk in ${nm(a.room)}`,
-    create_agent: () => `Agent: ${a.name}, ${a.role}${a.desk ? '' : ' (no desk yet)'}`, create_hallway: () => `Hallway: ${nm(a.from)} → ${nm(a.to)}`,
+    create_agent: () => `Agent: ${a.name}, ${String(a.role).replace(/_/g, ' ')}`, create_hallway: () => `Hallway: ${nm(a.from)} → ${nm(a.to)}`,
     create_connector: () => `Connector: ${a.name || a.kind}`, create_venture: () => `Venture: ${a.name}, loss limit ${money(int(a.maxLossCents, int(a.budgetCents)))}`,
     run_task: () => `Run now in ${nm(a.room)}: ${String(a.task).slice(0, 60)}`
   }[a.type]()));
@@ -127,11 +127,11 @@ function directorSystem(state) {
     state.mission ? `Mission: ${state.mission.name}. Target ${money(p.targetCents)} verified profit; verified net so far ${money(p.netCents)}. Capital ${money(state.mission.capitalCents)}, loss limit ${money(state.mission.riskCents)}.` : 'No mission set.',
     `Rooms: ${rooms}\nCrew: ${crew}\nVentures: ${vs}`,
     `Reply with ONLY JSON: {"say": string, "actions": Action[]}. Actions (use "ref" names to refer to things created earlier in the same plan):
-create_room {ref?, name, kind: lab|workshop|market|vault|review|custom, w?, h?, capabilities?}
+create_room {ref?, name, kind: lab|workshop|market|studio|adbay|storefront|support|vault|review|custom, w?, h?, capabilities?}
 create_desk {ref?, room, grants?}
-create_agent {ref?, name, role: researcher|builder|outreach|ops|finance|critic|custom, persona?, model?, desk?}
+create_agent {ref?, name, role: researcher|data_analyst|lead_generator|email_marketer|sales_closer|copywriter|content_manager|social_manager|designer|ad_manager|ecommerce_manager|builder|developer|customer_support|ops|finance|critic|custom, persona?, model?, desk?}  // omit desk and the agent gets their own desk in a matching room automatically
 create_hallway {from, to}  // ends are "inbox", "outbox", "room:<ref|id>", "connector:<ref|id>"
-create_connector {ref?, kind: stripe|email|ads|web|github|mcp, name?, near?: <room ref|id>}
+create_connector {ref?, kind: stripe|email|calendar|drive|notion|etsy|shopify|meta_ads, name?, near?: <room ref|id>}
 create_venture {name, thesis, budgetCents, maxLossCents}
 run_task {room, task}
 Rules: small experiments before scale; every venture has a loss limit; only verified ledger entries count; the owner approves your plans.`
