@@ -17,7 +17,7 @@ const fresh = () => { const s = new Store({ persist: false }); director.ensureDi
 test('first agent is the Director, seated on the Bridge with station.edit', () => {
   const s = fresh();
   const d = director.getDirector(s.state);
-  assert.ok(d.locked && d.avatar.accessory === 'crown');
+  assert.ok(d.locked && d.avatar.headwear === 'crown');
   assert.ok(station.effectiveCaps(s.state, d).includes('station.edit'));
   assert.throws(() => agents.deleteAgent(s.state, d.id), /cannot be removed/);
   assert.throws(() => agents.createAgent(s.state, { name: 'Two', role: 'director' }), /only one Director/);
@@ -77,12 +77,16 @@ test('Director plan: dry-run, approval gate, atomic apply, then pipeline runs to
   assert.ok(r.approvalId && !r.applied);
   assert.strictEqual(Object.keys(s.state.agents).length, 1); // nothing applied before approval
   await guardrails.resolveApproval(s, r.approvalId, true);
-  assert.strictEqual(Object.keys(s.state.agents).length, 6);
+  assert.strictEqual(Object.keys(s.state.agents).length, 8); // Director + 7 agents
+  assert.strictEqual(Object.keys(s.state.connectors).length, 3);
   assert.strictEqual(Object.keys(s.state.ventures).length, 1);
+  // Every agent has their own desk, and no two agents share one.
+  const desks = Object.values(s.state.agents).map((a) => a.deskId);
+  assert.ok(desks.every(Boolean)); assert.strictEqual(new Set(desks).size, desks.length);
   await runner.dispatch(s, { start: 'inbox', task: 'Find a niche' });
   assert.ok(s.state.outbox.some((o) => o.kind === 'deliverable' || o.kind === 'note'));
-  // Email hallway is gated: an approval card exists instead of a silent send.
-  assert.ok(s.state.approvals.some((a) => a.kind === 'connector.call' && a.status === 'pending'));
+  // The email connector is not set up yet, so the pipeline stops with a clear note instead of sending anything.
+  assert.ok(s.state.outbox.some((o) => o.status === 'blocked' && /not set up/.test(o.title)));
 });
 
 test('a plan that cannot apply rolls back fully', () => {
@@ -99,4 +103,51 @@ test('budgets stop runs in code', async () => {
   const d = director.getDirector(s.state);
   guardrails.recordSpend(s, { agentId: d.id, cents: 5 });
   await assert.rejects(runner.runAgent(s, d.id, 'hi'), /daily budget/);
+});
+
+test('every new agent gets their own desk; rooms grow, then new rooms open; auto desks leave with the agent', () => {
+  const s = fresh();
+  const made = [];
+  for (let i = 0; i < 7; i++) made.push(agents.createAgent(s.state, { name: 'W' + i, role: 'copywriter' }));
+  const desks = made.map((a) => a.deskId);
+  assert.ok(desks.every((d) => d && s.state.desks[d])); assert.strictEqual(new Set(desks).size, 7);
+  const studios = Object.values(s.state.rooms).filter((r) => r.kind === 'studio');
+  assert.ok(studios.length >= 1);
+  const before = Object.keys(s.state.desks).length;
+  agents.deleteAgent(s.state, made[0].id);
+  assert.strictEqual(Object.keys(s.state.desks).length, before - 1);
+});
+
+test('role ceilings hold: a Lead Generator in an outreach room still cannot send email', () => {
+  const s = fresh();
+  const a = agents.createAgent(s.state, { name: 'Lee', role: 'lead_generator' });
+  const room = s.state.rooms[s.state.desks[a.deskId].roomId];
+  assert.ok(room.capabilities.includes('email.send'));
+  const caps = station.effectiveCaps(s.state, a);
+  assert.ok(caps.includes('email.draft') && !caps.includes('email.send'));
+});
+
+test('avatars are validated, the Director keeps the crown, and v0.1 avatars are upgraded', () => {
+  const s = fresh();
+  const a = agents.createAgent(s.state, { name: 'Ava', role: 'researcher', avatar: { outfit: 'nope', hair: 'wild', skin: 'red', headwear: 'crown' } });
+  assert.strictEqual(a.avatar.outfit, 'labcoat'); // invalid value falls back to the role preset
+  assert.strictEqual(a.avatar.hair, 'wild');
+  assert.notStrictEqual(a.avatar.headwear, 'crown'); // only the Director wears it
+  assert.strictEqual(director.getDirector(s.state).avatar.headwear, 'crown');
+  a.avatar = { skin: '#fff', hair: '#000000', hairStyle: 2, outfit: '#123456', accessory: 'headset' }; // v0.1 shape
+  assert.ok(agents.migrate(s.state));
+  assert.ok(typeof a.avatar.outfitColor === 'string' && a.avatar.outfit);
+});
+
+test('rooms can be renamed and resized, and a desk cannot be cut off', () => {
+  const s = fresh();
+  const room = station.createRoom(s.state, { kind: 'lab', x: 2, y: 12, w: 9, h: 5 });
+  station.updateRoom(s.state, room.id, { name: '  War room  ' });
+  assert.strictEqual(s.state.rooms[room.id].name, 'War room');
+  assert.throws(() => station.updateRoom(s.state, room.id, { name: '   ' }), /needs a name/);
+  const desk = station.createDesk(s.state, { roomId: room.id, x: 8, y: 14 });
+  assert.throws(() => station.updateRoom(s.state, room.id, { w: 5, h: 4 }), /cut off a desk|Shrinking/);
+  station.updateRoom(s.state, room.id, { w: 12 });
+  assert.strictEqual(s.state.rooms[room.id].w, 12);
+  assert.ok(s.state.desks[desk.id]);
 });
