@@ -12,21 +12,24 @@
     <button id="mission-bar" class="mission" type="button" aria-label="Open the money panel"></button>
     <div id="spend" class="muted"></div>
   </header>
-  <main>
-    <nav id="tools" aria-label="Build tools"></nav>
+  <div id="app">
+    <nav id="rail" aria-label="Tools and panels"></nav>
     <section id="stage">
-      <canvas id="world" width="960" height="640" aria-label="Station floor plan"></canvas>
-      <div id="hint"></div>
-      <div id="empty" hidden></div>
+      <aside id="drawer" hidden aria-label="Panel"></aside>
+      <div id="view">
+        <canvas id="world" aria-label="Station floor plan"></canvas>
+        <div id="hint"></div>
+        <div id="welcome" hidden></div>
+      </div>
     </section>
-    <aside id="side">
-      <div id="tabs" role="tablist"></div>
-      <div id="panel" role="tabpanel"></div>
-    </aside>
-  </main>
+    <aside id="chat" aria-label="Chat with your agents"></aside>
+  </div>
   <div id="modal" hidden></div>
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="avatar.js"></script>
+  <script src="scene.js"></script>
   <script src="app.js"></script>
+  <script src="panels.js"></script>
+  <script src="editor.js"></script>
 </body>
 </html>
