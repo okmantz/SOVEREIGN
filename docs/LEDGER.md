@@ -2,7 +2,7 @@
 
 Profit is the only number that matters, so it is the one number agents cannot write.
 
-- **Verified** entries: source in `stripe, paypal, shopify, ads.meta, ads.google, bank` (arrive through signed ingest) or `harness.model` (measured by Sovereign).
+- **Verified** entries come from three places: platform data the harness fetched itself through a connector (Stripe, Shopify, Etsy, Facebook Ads), signed webhooks (`stripe, paypal, shopify, etsy, ads.meta, ads.google, bank`), and `harness.model` (measured by Sovereign).
 - **Claims**: anything an agent says it earned. Stored with `verified:false`, shown in the UI as "not counted", excluded from progress. The claim endpoint forces `source:"agent"`, so a prompt-injected agent cannot forge `stripe`.
 
 ## Signed ingest
@@ -15,6 +15,10 @@ Profit is the only number that matters, so it is the one number agents cannot wr
 
 After every ingest, ventures whose verified net has reached `-maxLossCents` are set to `killed`. Agents are not consulted.
 
-## Known limits (v0.1)
+## Connector sync
 
-Model cost is rounded up to whole cents per call. Stripe-native webhooks are not parsed yet (you bridge them); v0.2 adds first-party Stripe and ad-platform adapters that produce these same entries.
+Stripe, Shopify, Etsy and Facebook Ads connectors pull data every 10 minutes and write the same entries, idempotent by reference. See INTEGRATIONS.md.
+
+## Known limits
+
+Model cost is rounded up to whole cents per call. USD only. Etsy fees are not recorded yet. Adapters are untested against live accounts.

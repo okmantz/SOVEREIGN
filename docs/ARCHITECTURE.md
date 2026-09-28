@@ -4,11 +4,14 @@
 frontend/ (canvas + panels)  ⇄  HTTP/JSON + SSE  ⇄  sidecar/ (Node, localhost only)
                                                      ├─ store.js       JSON state, change events, atomic save
                                                      ├─ station.js     rooms, desks, hallways, connectors, capability math
-                                                     ├─ agents.js      roles, avatars, seating, Director lock
+                                                     ├─ roles.js       19 roles: room kind, capability ceiling, persona, default look
+                                                     ├─ avatars.js     avatar catalog: options, palettes, 17 presets, validation
+                                                     ├─ agents.js      create/edit agents, own-desk placement (grows or opens rooms), migration
                                                      ├─ director.js    plans: validate → dry-run → approve → apply (atomic)
                                                      ├─ runner.js      run an agent from a desk; dispatch work along hallways
                                                      ├─ guardrails.js  budgets, spend records, approvals + executors
                                                      ├─ ledger.js      verified vs claimed money, signed ingest, kill rules
+                                                     ├─ integrations/  adapters (stripe, shopify, etsy, meta_ads, notion, email, google) + oauth + registry
                                                      ├─ secrets.js     write-only key vault
                                                      └─ providers/     mock, openrouter, ollama (single choke point)
 ```

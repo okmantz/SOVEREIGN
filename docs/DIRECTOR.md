@@ -9,7 +9,7 @@ The first agent on every station. It cannot be deleted, its role cannot change, 
 
 The Director replies with JSON `{ "say": string, "actions": Action[] }`. Actions in one reply form one **plan**:
 
-`create_room`, `create_desk`, `create_agent`, `create_hallway`, `create_connector` (optionally `near` a room), `create_venture`, `run_task`.
+`create_room`, `create_desk`, `create_agent` (omit `desk` and the agent gets their own desk automatically), `create_hallway`, `create_connector` (optionally `near` a room), `create_venture`, `run_task`.
 Actions can refer to earlier ones by `ref`, so one plan can build a room, its desk, and the agent sitting at it.
 
 Lifecycle: **validate** every action → **dry-run** on a throwaway copy of state (a plan that cannot fit never reaches you) → **approve**
