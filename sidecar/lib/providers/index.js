@@ -16,7 +16,7 @@ function gate(name, max, fn) {
 // json: ask for machine-readable output. maxTokens: cap the answer length. onToken(fullText): progress for streaming providers.
 async function complete(store, { agent, system, messages, purpose, json, maxTokens, onToken }) {
   const st = store.state.settings, prov = st.provider, impl = impls[prov.name] || impls.mock;
-  const c = st.concurrency || { ollama: 2, other: 6 };
+  const c = st.concurrency || { ollama: 2, other: 8 };
   return gate(prov.name, prov.name === 'ollama' ? c.ollama : c.other, () =>
     impl.complete({ state: store.state, agent, model: (agent && agent.model) || prov.model, system, messages, purpose, json, maxTokens, onToken }));
 }
