@@ -11,6 +11,9 @@ const runner = require('./runner');
 const ledger = require('./ledger');
 const jobs = require('./jobs');
 const worlds = require('./worlds');
+const memory = require('./memory');
+const strategy = require('./strategy');
+const activity = require('./activity');
 const { Store, GRID } = require('./store');
 
 const ACTIONS = {
@@ -22,12 +25,13 @@ const ACTIONS = {
   create_venture:   ['name', 'thesis'],
   run_task:         ['room', 'task'],
   assign_task:      ['agent'],
+  remember:         ['text'],
   update_agent:     ['agent'],
   remove_agent:     ['agent'],
   message_world:    ['world', 'text']
 };
 // Work and small tweaks happen immediately. Anything that changes the station's structure waits for the owner.
-const IMMEDIATE = new Set(['assign_task', 'update_agent', 'message_world', 'run_task']);
+const IMMEDIATE = new Set(['assign_task', 'update_agent', 'message_world', 'run_task', 'remember']);
 
 const getDirector = (state) => Object.values(state.agents).find((a) => a.role === 'director');
 
@@ -95,6 +99,7 @@ function applyPlan(store, actions, { dry = false, ctx } = {}) {
         const ag = findAgent(s, a.agent, refs); assert(ag, `There is no agent called "${a.agent}".`); assert(ag.role !== 'director', 'The Director plans; pick another agent to do the work.');
         if (a.task) assert(jobs.spec(ag.role).tasks.some((t) => t.id === a.task), `${ag.name} has no task "${a.task}". Try one of: ${jobs.spec(ag.role).tasks.map((t) => t.id).join(', ') || 'free instructions'}.`);
         later.push({ kind: 'assign', agent: ag.name, agentId: ag.id, task: a.task || null, instructions: a.instructions ? String(a.instructions).slice(0, 1500) : '' });
+      } else if (a.type === 'remember') { later.push({ kind: 'remember', text: String(a.text).slice(0, 220) });
       } else if (a.type === 'update_agent') {
         const ag = findAgent(s, a.agent, refs); assert(ag, `There is no agent called "${a.agent}".`); assert(ag.role !== 'director', 'Edit the Director from the agent editor.');
         agents.updateAgent(s, ag.id, { settings: a.settings, persona: a.persona, name: a.name });
@@ -112,6 +117,7 @@ function applyPlan(store, actions, { dry = false, ctx } = {}) {
     for (const t of later) {
       if (t.kind === 'room') runner.dispatch(store, { start: t.room.startsWith('room:') ? t.room : 'room:' + t.room, task: t.task }).catch((e) => noteDirector(store, `The task in that room failed: ${e.message}`));
       else if (t.kind === 'assign') runner.assign(store, { agentId: t.agentId, taskId: t.task, instructions: t.instructions, title: `${t.agent}: ${t.task || 'task'}` }).catch((e) => noteDirector(store, `${t.agent} could not finish: ${e.message}`));
+      else if (t.kind === 'remember') { memory.addDecision(store.state, t.text, 'Director'); store.change('state'); }
       else if (t.kind === 'world') { try { worlds.deliver(store, t.target, t.text); } catch (e) { noteDirector(store, e.message); } }
     }
   }
@@ -127,7 +133,7 @@ function describe(actions) {
     create_connector: () => `Connector: ${a.name || a.kind}`, create_venture: () => `Venture: ${a.name}, loss limit ${money(int(a.maxLossCents, int(a.budgetCents)))}`,
     run_task: () => `Run now in ${nm(a.room)}: ${String(a.task).slice(0, 60)}`,
     assign_task: () => `Ask ${a.agent} to: ${String(a.task || a.instructions).slice(0, 70)}`, update_agent: () => `Update ${a.agent}'s settings`,
-    remove_agent: () => `Remove agent ${a.agent}`, message_world: () => `Message world ${a.world}: ${String(a.text).slice(0, 60)}`
+    remember: () => `Remember: ${String(a.text).slice(0, 70)}`, remove_agent: () => `Remove agent ${a.agent}`, message_world: () => `Message world ${a.world}: ${String(a.text).slice(0, 60)}`
   }[a.type]()));
 }
 
@@ -158,7 +164,7 @@ function propose(store, actions) {
 }
 guardrails.registerExecutor('director.plan', async (store, payload) => { applyPlan(store, payload.actions); return { applied: payload.actions.length }; });
 
-function directorSystem(state) {
+function directorSystem(state, store) {
   const p = ledger.progress(state), rm = state.roadmap;
   const rooms = Object.values(state.rooms).map((r) => `${r.id}="${r.name}"[${r.kind}]`).join('; ') || 'none';
   const crew = Object.values(state.agents).filter((a) => a.role !== 'director').map((a) => `${a.name}(${a.role}; tasks: ${jobs.spec(a.role).tasks.map((t) => t.id).join(',') || 'free'})`).join('; ') || 'none yet';
@@ -169,6 +175,10 @@ function directorSystem(state) {
     getDirector(state).persona,
     state.focus ? `World focus: ${state.focus}` : '',
     state.mission ? `Goal: ${state.mission.name}. Target ${money(p.targetCents)} verified profit; verified net so far ${money(p.netCents)}. Capital ${money(state.mission.capitalCents)}, loss limit ${money(state.mission.riskCents)}. ${prog}` : 'No goal set.',
+    memory.constraints(state),
+    memory.block(state),
+    (() => { const sv = strategy.view(state); return sv ? 'Capital ladder: ' + sv.stages.map((x, i) => `${i + 1}. ${x.title} [${x.status}] target ${money(x.targetCents)}`).join(' | ') : ''; })(),
+    (() => { if (!store) return ''; const busy = activity.list(store).map((x) => `${(state.agents[x.agentId] || {}).name} (${x.title})`); return busy.length ? 'Working right now: ' + busy.join('; ') + '. Give work to everyone else.' : 'Nobody is working right now: put the team to work.'; })(),
     `Rooms: ${rooms}\nAgents: ${crew}\nVentures: ${vs}${linked.length ? '\nLinked worlds: ' + linked.join(', ') : ''}`,
     `Reply with ONLY JSON: {"say": string, "actions": Action[]}. Keep "say" short. Actions:
 assign_task {agent: <name>, task?: <task id from that agent's list>, instructions?}  // tell an agent to do work now; no approval needed
@@ -198,9 +208,9 @@ async function handleMessage(store, text) {
   const dir = ensureDirector(store);
   guardrails.assertBudget(store.state, dir.id);
   log(store.state, dir.id, 'user', text);
-  store.emit('run.start', { agentId: dir.id });
+  activity.begin(store, dir.id, 'Directing the team');
   try {
-    const res = await providers.complete(store, { agent: dir, purpose: 'director', json: true, maxTokens: 1000, system: directorSystem(store.state),
+    const res = await providers.complete(store, { agent: dir, purpose: 'director', json: true, maxTokens: 1000, system: directorSystem(store.state, store),
       messages: store.state.transcripts[dir.id].slice(store.state.settings.provider.name === 'ollama' ? -4 : -8).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content).slice(0, 2500) })) });
     guardrails.recordSpend(store, { agentId: dir.id, cents: res.costCents, tokensIn: res.tokensIn, tokensOut: res.tokensOut, model: res.model });
     const { say, actions } = parseReply(res.text);
@@ -211,7 +221,7 @@ async function handleMessage(store, text) {
       catch (e) { outcome.error = e.message; log(store.state, dir.id, 'assistant', `My plan didn't fit: ${e.message}. Tell me what to change and I'll re-plan.`); }
     }
     return { say, ...outcome };
-  } finally { store.emit('run.done', { agentId: dir.id }); store.change('state'); }
+  } finally { activity.end(store, dir.id); store.change('state'); }
 }
 
 module.exports = { ensureDirector, getDirector, handleMessage, applyPlan, propose, validate, describe, findAgent, noteDirector, ACTIONS, IMMEDIATE };

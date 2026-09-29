@@ -80,17 +80,19 @@ const JOBS = {
     tasks: [task('ad_test_plan', 'Plan an ad test', 'Plan a small paid test within the saved daily budget and stop-loss: audience, 3 creative angles, success threshold, and when to stop. You cannot create campaigns yourself, so write it so the owner can set it up in minutes.'),
       task('creative_briefs', 'Write creative briefs', 'Write briefs for 3 ad creatives: hook, visual idea, copy, and call to action.'),
       task('daily_ad_review', 'Review ad results', 'Review the ad spend and results available. For each ad: keep, change or kill against the target cost per result, with one line of reasoning. Say "no data" if there is none.')] },
-  ecommerce_manager: { summary: 'Run Etsy and Shopify listings: titles, tags, pricing, photos and order health.',
+  ecommerce_manager: { summary: 'Choose and import products for free, run listings, pricing and order health.',
     does: ['Generate product ideas', 'Write full listings', 'Review pricing and margin', 'Watch orders and refunds'], deliver: ['Product ideas', 'Listing drafts', 'Pricing review'], quality: ['Margin first', 'Search-friendly titles', 'Flag refund patterns'],
     settings: [S('platform', 'Store platform', 'shopify', ['etsy', 'shopify', 'both']), T('productType', 'Product type', ''), T('priceRange', 'Price range', ''), A('shippingNotes', 'Shipping and fulfilment notes', '')],
-    tasks: [task('product_ideas', 'Generate product ideas', 'Suggest 8 products that fit the goal and product type, each with target buyer, price point, rough margin and why it should sell.'),
+    tasks: [task('import_products', 'Import the product catalog', 'Build the catalog the storefront will sell, with no upfront inventory and no cost: digital products the owner already can deliver, or print-on-demand items from a supplier with a free plan. Verify current supplier terms before naming a cost and never state a price you did not verify. For each product give id, name, price, cost to fulfil, margin, supplier or delivery method, and a one-line description. Prices must leave a positive margin after fees. Return the catalog as a file: FILE: products.json then a fenced JSON block shaped {"products":[{"id":"","name":"","price":0,"cost":0,"description":"","fulfilment":""}]}, then a short list of how each order is fulfilled.'),
+      task('product_ideas', 'Generate product ideas', 'Suggest 8 products that fit the goal and product type, each with target buyer, price point, rough margin and why it should sell.'),
       task('write_listings', 'Write listings', 'Write complete listings for the chosen products: title, description, bullet points, tags or keywords, and suggested price.'),
       task('pricing_review', 'Review pricing', 'Review prices against estimated costs and comparable products, and recommend changes that protect margin.'),
       task('order_review', 'Review orders', 'Review recent orders and refunds from the data available. Flag problems and suggest fixes. Say "no data" if there are none.')] },
-  builder: { summary: 'Ship the smallest working thing: a page, an offer, a product, an automation.',
-    does: ['Write specs and build the first version', 'Prefer boring and finished over clever and late'], deliver: ['Working code or a precise build spec'], quality: ['Smallest thing that works', 'No dependencies unless needed', 'Explain how to run it'],
-    settings: [T('stack', 'Stack', 'plain HTML, CSS and JavaScript'), T('deployTarget', 'Where it will be hosted', '')],
-    tasks: [task('landing_page_build', 'Build a landing page', 'Build a single-file landing page from the copy provided using the saved stack. Return the full file and how to host it.'),
+  builder: { summary: 'Ship the smallest working thing for free: a website, an offer page, a store, an automation.',
+    does: ['Build real static websites that host free (GitHub Pages, Cloudflare Pages, Netlify)', 'Wire "Buy" buttons to a hosted checkout link so people can click and pay', 'Prefer boring and finished over clever and late'], deliver: ['Working files, one block per file', 'Short publish steps'], quality: ['Smallest thing that works', 'No dependencies unless needed, no cost', 'Buy buttons read window.STORE_LINKS from config.js so the owner can paste links without editing code', 'Mobile friendly, fast, honest copy'],
+    settings: [T('stack', 'Stack', 'plain HTML, CSS and JavaScript'), T('deployTarget', 'Where it will be hosted', 'a free static host (Cloudflare Pages, GitHub Pages or Netlify)')],
+    tasks: [task('landing_page_build', 'Build a landing page', 'Build a single-page site from the copy provided: index.html with inline CSS. Include one clear call to action that opens window.STORE_LINKS["main"] (loaded from config.js, with a sensible fallback message when it is empty). Return every file as its own block: a line "FILE: name.ext" then a fenced code block with the full contents. Use only static files (HTML, CSS, JS, JSON) so it hosts for free; no server, no build step, no paid service. Then give three short steps to publish it free.'),
+      task('store_site', 'Build the storefront site', 'Build a complete static storefront from the products and listing copy in the team memory and inputs: index.html (product grid and cart-free "Buy" buttons), style.css, app.js, and config.js containing window.STORE_LINKS = {} . Each product card reads its checkout URL from window.STORE_LINKS[product.id] and opens it in a new tab; when a link is missing it shows "Coming soon". Load the catalog from products.json (use those exact ids). Add a short refund and contact section. Return every file as its own block: a line "FILE: name.ext" then a fenced code block with the full contents. Use only static files (HTML, CSS, JS, JSON) so it hosts for free; no server, no build step, no paid service. Finish with the exact free publish steps.'),
       task('mvp_spec', 'Write an MVP spec', 'Write the smallest possible spec for a first version: the one job it does, screens or steps, data needed, and what is explicitly out of scope.'),
       task('automation_script', 'Write an automation script', 'Write a small script that automates the described step. Include how to run it and what could go wrong.')] },
   developer: { summary: 'Write and test the code the business needs, in small safe changes.',
@@ -144,12 +146,23 @@ function cleanSettings(role, input, current) {
   return out;
 }
 
+// Spend settings can never outrun the owner's money: a saved $10/day ad budget means nothing when the capital is $50.
+function capSettings(agent, s, mission) {
+  if (!mission || agent.role !== 'ad_manager') return { s, capped: [] };
+  const capD = Math.max(0, (mission.capitalCents || 0) / 100), riskD = mission.riskCents > 0 ? mission.riskCents / 100 : capD, out = { ...s }, capped = [];
+  const daily = Math.floor((capD * 0.5) / 7), stop = Math.floor(Math.min(riskD, capD * 0.5));
+  if (Number(out.dailyBudget) > daily) { out.dailyBudget = daily; capped.push('dailyBudget'); }
+  if (Number(out.stopLoss) > stop) { out.stopLoss = stop; capped.push('stopLoss'); }
+  return { s: out, capped };
+}
+
 // The job block appended to every agent prompt.
-function systemFor(agent) {
-  const j = spec(agent.role), s = agent.settings || defaultSettings(agent.role);
-  const set = j.settings.map((f) => [f.label, s[f.key]]).filter(([, v]) => v !== '' && v != null).map(([l, v]) => `- ${l}: ${v}`);
+function systemFor(agent, mission) {
+  const j = spec(agent.role), base = agent.settings || defaultSettings(agent.role), { s, capped } = capSettings(agent, base, mission);
+  const set = j.settings.map((f) => [f.label, s[f.key], capped.includes(f.key)]).filter(([, v]) => v !== '' && v != null).map(([l, v, c]) => `- ${l}: ${v}${c ? ' (capped by the owner\'s capital)' : ''}`);
+  const noAds = mission && agent.role === 'ad_manager' && !((mission.capitalCents || 0) >= 3000) ? 'The owner\'s capital is too small for paid ads. Propose only free traffic methods.' : '';
   return [`YOUR JOB: ${j.summary}`, 'You are responsible for:\n' + j.does.map((x) => '- ' + x).join('\n'), 'You hand back:\n' + j.deliver.map((x) => '- ' + x).join('\n'),
-    'Quality bar:\n' + j.quality.map((x) => '- ' + x).join('\n'), set.length ? 'Your saved settings (use them):\n' + set.join('\n') : ''].filter(Boolean).join('\n\n');
+    'Quality bar:\n' + j.quality.map((x) => '- ' + x).join('\n'), set.length ? 'Your saved settings (use them):\n' + set.join('\n') : '', noAds].filter(Boolean).join('\n\n');
 }
 // Build the user prompt for one unit of work.
 function taskPrompt(agent, { taskId, instructions, context }) {
@@ -159,8 +172,9 @@ function taskPrompt(agent, { taskId, instructions, context }) {
   if (context && context.milestone) parts.push(`Milestone: ${context.milestone}`);
   if (t) parts.push(`Task: ${t.label}\n${t.prompt}`);
   if (instructions) parts.push(`${t ? 'Extra instructions' : 'Task'}: ${instructions}`);
-  if (context && context.previous) parts.push(`Previous work to build on:\n${context.previous}`);
-  parts.push('Return the finished deliverable directly, without preamble.');
+  if (context && context.previous) parts.push(`Work from teammates to build on (stay consistent with it):\n${context.previous}`);
+  parts.push(`Keep it tight: about ${(context && context.words) || 350} words at most, dense and specific, no filler.`,
+    'Start your reply with one line: "HANDOFF: <under 30 words: the key facts and decisions your teammates need>". If you made a real choice (niche, offer, price, channel, budget), add up to three lines "DECISION: <the choice>" straight after it. Then give the finished deliverable, without any other preamble.');
   return parts.join('\n\n');
 }
 const publicJobs = () => Object.fromEntries(Object.entries(JOBS).map(([k, j]) => [k, { summary: j.summary, does: j.does, deliver: j.deliver, quality: j.quality, settings: j.settings, tasks: j.tasks.map((t) => ({ id: t.id, label: t.label })) }]));

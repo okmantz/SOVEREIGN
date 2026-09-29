@@ -29,7 +29,9 @@ function blankSettings() {
     // connectorWrites:   'ask' = emails, pages, files and events wait for you, 'auto' = send directly.
     policy: { directorStructure: 'ask', connectorWrites: 'ask', spendApprovalCents: 5000 },
     budgets: { globalDailyCents: 2000, perAgentDailyCents: 500 },
-    concurrency: { ollama: 2, other: 6 }, // how many agents may call the model at once
+    concurrency: { ollama: 2, other: 8 }, // how many agents may call the model at once
+    speed: 'fast',        // fast | balanced | thorough: how long each deliverable may run
+    autoDelegate: true,   // the Director hands extra work to agents that would otherwise sit idle
     intro: true,
     ingestSecretSet: false
   };
@@ -39,6 +41,7 @@ function blankWorld(id, name, opts = {}) {
   return {
     id, name: name || 'Main', kind: opts.kind || 'general', color: opts.color || '#00ff88', focus: opts.focus || '', createdAt: Date.now(),
     mission: null, roadmap: null, journey: { stage: 'goal', busy: null, milestones: [], notice: null },
+    memory: { brief: '', decisions: [], ownerNotes: [], handoffs: [], spendPlan: null, synced: [] }, strategy: null,
     agents: {}, rooms: {}, desks: {}, hallways: {}, connectors: {}, ventures: {},
     ledger: [], spend: [], approvals: [], outbox: [], transcripts: {}
   };
@@ -79,6 +82,7 @@ class Store {
     let raw; try { raw = JSON.parse(fs.readFileSync(this.file(), 'utf8')); } catch (_) { return; } // first run
     if (raw && raw.worlds) {
       this.data = { ...this.data, ...raw, settings: { ...blankSettings(), ...(raw.settings || {}) } };
+      const c = this.data.settings.concurrency; if (c && c.other === 6) c.other = 8; // the old default was too low for parallel agents
     } else if (raw && raw.agents) { // a v0.1/v0.2 single-station file becomes the "Main" world
       const { settings, ...rest } = raw;
       this.data.settings = { ...blankSettings(), ...(settings || {}) };

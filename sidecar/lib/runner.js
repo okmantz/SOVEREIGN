@@ -6,6 +6,9 @@ const guardrails = require('./guardrails');
 const station = require('./station');
 const integrations = require('./integrations');
 const jobs = require('./jobs');
+const memory = require('./memory');
+const sites = require('./sites');
+const activity = require('./activity');
 const { roleOf } = require('./roles');
 
 const MAX_HOPS = 12;
@@ -19,13 +22,19 @@ function outputContracts(state, agent) {
   return lines.join('\n');
 }
 
+// How long a deliverable may run. Output length is the biggest driver of wait time, so 'fast' is the default.
+const SPEEDS = { fast: { tokens: 700, words: 260 }, balanced: { tokens: 1000, words: 380 }, thorough: { tokens: 1500, words: 650 } };
+const speedOf = (state) => SPEEDS[(state.settings || {}).speed] || SPEEDS.fast;
+
 function buildSystem(state, agent, caps, { pipeline = false } = {}) {
-  const m = state.mission;
+  const m = state.mission, local = state.settings && state.settings.provider && state.settings.provider.name === 'ollama';
   return [
     agent.persona,
-    jobs.systemFor(agent),
+    jobs.systemFor(agent, m),
     state.focus ? `World focus: ${state.focus}` : '',
     m ? `Goal: ${m.name}. Target: earn ${(m.targetCents / 100).toFixed(2)} USD of VERIFIED profit. Only ledger entries confirmed by a payment platform, ad platform or the bank count; anything you claim without proof is ignored.` : 'No goal is set yet.',
+    memory.constraints(state),
+    memory.block(state, { local }),
     `Your role: ${roleOf(agent.role)}. Your capabilities right now: ${caps.length ? caps.join(', ') : 'none (you have no desk grants)'}.`,
     'Stay inside those capabilities. If a task needs one you lack, say so and name the room or desk that has it. Never invent revenue, customers or results.',
     pipeline ? outputContracts(state, agent) : ''
@@ -43,48 +52,55 @@ function history(store, agentId) {
   return store.state.transcripts[agentId].slice(local ? -6 : -12).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content).slice(0, local ? 1800 : 6000) }));
 }
 
-async function runAgent(store, agentId, task, { input, pipeline = false, maxTokens = 900 } = {}) {
+// stateless: send only this prompt (job tasks carry their own context and the shared memory), not the whole chat history.
+// That keeps prompts small, which is the second biggest driver of wait time after output length.
+async function runAgent(store, agentId, task, { input, pipeline = false, maxTokens = 900, stateless = false, title } = {}) {
   const state = store.state;
   const agent = state.agents[agentId]; assert(agent, 'Agent not found', 404);
   assert(agent.deskId && state.desks[agent.deskId], `${agent.name} has no desk. Seat them at a desk to give them work.`);
   guardrails.assertBudget(state, agentId);
   const caps = station.effectiveCaps(state, agent);
   const prompt = input ? `${task}\n\nInput from the previous stage:\n${input}` : task;
-  store.emit('run.start', { agentId });
-  push(state, agentId, 'user', prompt);
-  store.change('state');
-  let last = 0;
-  const onToken = (full) => { const now = Date.now(); if (now - last > 180) { last = now; store.emit('token', { agentId, text: full.slice(-1200) }); } }; // live text for the chat
-  try {
-    const res = await providers.complete(store, { agent, system: buildSystem(state, agent, caps, { pipeline }), purpose: 'agent', maxTokens, messages: history(store, agentId), onToken });
-    guardrails.recordSpend(store, { agentId, cents: res.costCents, tokensIn: res.tokensIn, tokensOut: res.tokensOut, model: res.model });
-    push(state, agentId, 'assistant', res.text);
-    return res.text;
-  } catch (e) {
-    push(state, agentId, 'assistant', 'I could not finish that: ' + e.message);
-    throw e;
-  } finally {
-    store.emit('run.done', { agentId });
+  return activity.track(store, agentId, title || (pipeline ? 'Working the pipeline' : 'Answering you'), async () => {
+    push(state, agentId, 'user', prompt);
     store.change('state');
-  }
+    let last = 0;
+    const onToken = (full) => { const now = Date.now(); if (now - last > 180) { last = now; store.emit('token', { agentId, text: full.slice(-1200) }); } }; // live text for the chat
+    try {
+      const res = await providers.complete(store, { agent, system: buildSystem(state, agent, caps, { pipeline }), purpose: 'agent', maxTokens,
+        messages: stateless ? [{ role: 'user', content: String(prompt).slice(0, 12000) }] : history(store, agentId), onToken });
+      guardrails.recordSpend(store, { agentId, cents: res.costCents, tokensIn: res.tokensIn, tokensOut: res.tokensOut, model: res.model });
+      push(state, agentId, 'assistant', res.text);
+      return res.text;
+    } catch (e) {
+      push(state, agentId, 'assistant', 'I could not finish that: ' + e.message);
+      throw e;
+    } finally { store.change('state'); }
+  });
 }
 
 function addOutbox(store, item) {
   const o = { id: id('out'), at: Date.now(), kind: 'deliverable', status: 'done', ...item };
   store.state.outbox.unshift(o);
-  if (store.state.outbox.length > 300) store.state.outbox.length = 300;
+  if (store.state.outbox.length > 300) { const keep = store.state.outbox.filter((x, i) => i < 300 || x.kind === 'sop'); store.state.outbox.length = 0; store.state.outbox.push(...keep); } // trim, but never lose an SOP
   store.change('outbox', { id: o.id });
   return o;
 }
 
-// One unit of job work: builds the prompt from the agent's coded job, runs it, files the result in the Outbox.
-async function assign(store, { agentId, taskId, instructions, title, context, maxTokens }) {
+// One unit of job work: builds the prompt from the agent's coded job, runs it, files the result in the Outbox, and leaves a
+// handoff in the team memory so the next agent builds on it. Job tasks are stateless: they carry their own context.
+async function assign(store, { agentId, taskId, instructions, title, context, maxTokens, taskLabel, refId }) {
   const agent = store.state.agents[agentId]; assert(agent, 'Agent not found', 404);
-  const prompt = jobs.taskPrompt(agent, { taskId, instructions, context });
-  const text = await runAgent(store, agentId, prompt, { maxTokens: maxTokens || 1100 });
-  const t = jobs.spec(agent.role).tasks.find((x) => x.id === taskId);
-  const o = addOutbox(store, { title: title || `${agent.name}: ${t ? t.label : 'task'}`, content: text, fromRoom: agent.name, meta: { agentId, taskId: taskId || null } });
-  return { text, outboxId: o.id };
+  const sp = speedOf(store.state), t = jobs.spec(agent.role).tasks.find((x) => x.id === taskId);
+  const prompt = jobs.taskPrompt(agent, { taskId, instructions, context: { words: sp.words, ...(context || {}) } });
+  const raw = await runAgent(store, agentId, prompt, { maxTokens: maxTokens || sp.tokens, stateless: true, title: taskLabel || (t && t.label) || 'Working on a task' });
+  const name = title || `${agent.name}: ${t ? t.label : 'task'}`;
+  const rec = memory.record(store.state, { refId: refId || null, agentName: agent.name, role: agent.role, title: taskLabel || (t && t.label) || name, text: raw });
+  const text = rec.clean || raw;
+  const files = ['builder', 'developer', 'ecommerce_manager', 'designer'].includes(agent.role) ? sites.ingest(store, text) : []; // real files go to the site folder
+  const o = addOutbox(store, { title: name, content: text, fromRoom: agent.name, meta: { agentId, taskId: taskId || null, handoff: rec.entry.text, ...(files.length ? { files, preview: `/sites/${store.id || store.defaultId}/` } : {}) } });
+  store.change('state');
+  return { text, outboxId: o.id, handoff: rec.entry.text };
 }
 
 const seatedIn = (state, roomId) =>
@@ -177,4 +193,4 @@ guardrails.registerExecutor('connector.call', async (store, payload) => {
   return { detail: r.detail };
 });
 
-module.exports = { runAgent, assign, sendToConnector, dispatch, addOutbox, seatedIn, buildSystem, kindLabel };
+module.exports = { runAgent, assign, sendToConnector, dispatch, addOutbox, seatedIn, buildSystem, kindLabel, speedOf, SPEEDS };

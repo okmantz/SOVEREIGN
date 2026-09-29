@@ -8,6 +8,9 @@ const { ROLES } = require('./roles');
 const providers = require('./providers');
 const guardrails = require('./guardrails');
 const station = require('./station');
+const strategy = require('./strategy');
+const memory = require('./memory');
+const activity = require('./activity');
 
 const clip = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
 const STORE = { etsy: 'Etsy', shopify: 'Shopify', woocommerce: 'WooCommerce', gumroad: 'Gumroad' };
@@ -26,7 +29,7 @@ const PATHS = {
   ecommerce: { label: 'Online store', words: ['etsy', 'shopify', 'store', 'ecommerce', 'e-commerce', 'print on demand', 'dropship', 'products', 'sell online', 'merch', 'woocommerce', 'gumroad', 'digital download', 'planner', 'template'],
     build: (ctx) => { const P = STORE[ctx.platform]; return [
       m('products', 'Choose what to sell', 'Find products with demand and healthy margin.', 3, [k('researcher', 'market_scan', 'Find profitable product niches'), k('ecommerce_manager', 'product_ideas', 'Shortlist the first products'), k('critic', 'review_plan', 'Critique the product choice')]),
-      m('assets', 'Prepare the store content', 'Get listings, copy and images ready.', 5, [k('copywriter', 'product_listing', 'Write the listing copy'), k('ecommerce_manager', 'write_listings', 'Finish the listings'), k('designer', 'listing_images_spec', 'Spec the listing images')]),
+      m('assets', 'Prepare the store content', 'Get listings, copy and images ready.', 5, [k('copywriter', 'product_listing', 'Write the listing copy'), k('ecommerce_manager', 'import_products', 'Import the product catalog (free, no inventory)'), k('ecommerce_manager', 'write_listings', 'Finish the listings'), k('designer', 'listing_images_spec', 'Spec the listing images'), k('builder', 'store_site', 'Build the free storefront site with buy buttons')]),
       m('launch', `Open the ${P} store`, 'Publish the listings. This step is yours.', 7, [k('ops', 'fulfilment_checklist', 'Plan order fulfilment'), k('ops', null, `Create your ${P} store and publish the drafted listings`, { human: true, instructions: 'Use the listing drafts and image specs in the Outbox.' })]),
       m('traffic', 'Get the first visitors', 'Paid and direct traffic beats waiting for organic.', 10, [k('ad_manager', 'ad_test_plan', 'Plan a small paid traffic test'), k('social_manager', 'post_batch', 'Draft launch posts')]),
       m('sales', 'Track the first sales', 'Prove revenue with verified data.', 21, [k('data_analyst', 'kpi_report', 'Report early sales and conversion', { requires: [ctx.platform] })])]; } },
@@ -42,7 +45,7 @@ const PATHS = {
       m('validate', 'Validate demand', 'Prove people want it before building.', 4, [k('researcher', 'validate_offer', 'Validate the product idea'), k('researcher', 'audience_profile', 'Profile the first users'), k('critic', 'review_plan', 'Critique the idea')]),
       m('spec', 'Define the smallest version', 'One job, done well.', 6, [k('builder', 'mvp_spec', 'Write the MVP spec')]),
       m('build', 'Build and ship it', 'Get a working version in front of people.', 14, [k('developer', 'implement_feature', 'Build the first version'), k('ops', null, 'Deploy the first version somewhere people can reach it', { human: true, instructions: 'Use the code and run instructions in the Outbox.' })]),
-      m('launch', 'Launch', 'Tell the first users.', 18, [k('copywriter', 'landing_page', 'Write the launch page'), k('lead_generator', 'build_lead_list', 'Build a list of first users'), k('email_marketer', 'draft_outreach_batch', 'Draft the launch outreach', { optional: ['email'], deliver: ['email'] })]),
+      m('launch', 'Launch', 'Tell the first users.', 18, [k('copywriter', 'landing_page', 'Write the launch page'), k('builder', 'landing_page_build', 'Build the launch page as a free static site'), k('lead_generator', 'build_lead_list', 'Build a list of first users'), k('email_marketer', 'draft_outreach_batch', 'Draft the launch outreach', { optional: ['email'], deliver: ['email'] })]),
       m('customers', 'Win the first customers', 'Turn interest into paid use.', 30, [k('sales_closer', 'proposal', 'Write the pricing and proposal'), k('finance', 'ledger_review', 'Review verified revenue', { optional: ['stripe'] })])] },
   trading: { label: 'Trading research', words: ['trading', 'trade', 'forex', 'futures', 'stocks', 'crypto', 'prop firm', 'backtest', 'options', 'strategy'],
     build: () => [
@@ -51,10 +54,16 @@ const PATHS = {
       m('backtest', 'Backtest', 'Test the rules on history.', 14, [k('developer', 'implement_feature', 'Write the backtest with clear metrics'), k('developer', 'write_tests', 'Write tests for the backtest')]),
       m('paper', 'Paper trade', 'Practise with no money at risk.', 28, [k('ops', null, 'Paper trade for two weeks and log every trade', { human: true }), k('data_analyst', 'kpi_report', 'Review the paper trading log')]),
       m('decide', 'Go or no-go', 'Decide honestly whether to risk real money.', 30, [k('critic', 'review_plan', 'Decide go or no-go for small live size')])] },
+  grow: { label: 'Grow what works', words: [], // later cycles and stages: read the numbers, double down, reinvest from profit
+    build: () => [
+      m('numbers', 'Read the numbers', 'Find out what actually earned before spending more.', 3, [k('data_analyst', 'kpi_report', 'Report what is working and what is not'), k('finance', 'ledger_review', 'Review verified revenue and costs', { optional: ['stripe'] })]),
+      m('double', 'Double down on the winner', 'Put effort and money into the one thing with proof behind it.', 7, [k('researcher', 'competitor_teardown', 'Find the gap the winner can widen'), k('copywriter', 'ad_variants', 'Write sharper variants of what converted'), k('lead_generator', 'build_lead_list', 'Build the next batch of likely buyers')]),
+      m('scale', 'Scale from reinvested profit', 'Spend only from verified profit, in small steps with stop-losses.', 10, [k('email_marketer', 'write_sequence', 'Write the next outreach sequence'), k('ad_manager', 'ad_test_plan', 'Plan a reinvestment test inside the stage budget'), k('social_manager', 'post_batch', 'Draft distribution posts')]),
+      m('decide', 'Decide the next move', 'Keep, kill or scale, and choose the next stage.', 14, [k('finance', 'kill_or_scale', 'Recommend kill, hold or scale'), k('critic', 'review_plan', 'Critique the next-stage plan')])] },
   general: { label: 'General business', words: [],
     build: () => [
       m('research', 'Find demand and an offer', 'Know who pays and for what.', 3, [k('researcher', 'market_scan', 'Shortlist niches with paying demand'), k('researcher', 'validate_offer', 'Validate the offer'), k('critic', 'review_plan', 'Critique the plan')]),
-      m('offer', 'Make the offer real', 'Turn the idea into something people can buy.', 6, [k('copywriter', 'landing_page', 'Write the offer page'), k('builder', 'landing_page_build', 'Build the page')]),
+      m('offer', 'Make the offer real', 'Turn the idea into something people can buy.', 6, [k('copywriter', 'landing_page', 'Write the offer page'), k('builder', 'landing_page_build', 'Build the page as a free static site with a buy button')]),
       m('traffic', 'Reach buyers', 'Direct outreach and a small paid test.', 10, [k('lead_generator', 'build_lead_list', 'Build a list of likely buyers'), k('email_marketer', 'write_sequence', 'Write the outreach sequence'), k('ad_manager', 'ad_test_plan', 'Plan a small paid test')]),
       m('sell', 'Sell and deliver', 'Close the first customers.', 14, [k('sales_closer', 'proposal', 'Write the proposal'), k('ops', 'fulfilment_checklist', 'Prepare delivery')]),
       m('measure', 'Measure', 'Keep what earns.', 21, [k('data_analyst', 'kpi_report', 'Report results'), k('finance', 'ledger_review', 'Review verified revenue', { optional: ['stripe'] })])] }
@@ -71,9 +80,16 @@ function platformOf(goalText) {
   const t = String(goalText || '').toLowerCase();
   return /etsy/.test(t) ? 'etsy' : /shopify/.test(t) ? 'shopify' : /woocommerce|wordpress/.test(t) ? 'woocommerce' : /gumroad|digital (product|download)|planner|template/.test(t) ? 'gumroad' : 'shopify';
 }
-function template(goalText, world) {
-  const path = classify(goalText, world), p = PATHS[path];
+function template(goalText, world, opts = {}) {
+  const path = opts.path && PATHS[opts.path] ? opts.path : classify(goalText, world), p = PATHS[path];
   return { path, label: p.label, milestones: p.build({ platform: platformOf(goalText) }) };
+}
+// Cycle 0 is the classified path. Later cycles grow what works, unless the next stage is a different kind of venture.
+function pathFor(world, goal) {
+  const j = world.journey, cycle = j.cycle || 0;
+  if (cycle === 0) return { path: classify(goal, world) };
+  const st = strategy.current(world), base = j.basePath || classify(goal, world);
+  return { path: st && st.path && st.path !== base && PATHS[st.path] ? st.path : 'grow' };
 }
 
 const withIds = (ms) => ms.map((x) => ({ id: id('m'), key: x.key, title: x.title, why: x.why, days: x.days, status: 'todo', tasks: x.tasks.map((t) => ({ ...t, id: id('t'), status: 'todo', attempts: 0 })) }));
@@ -81,25 +97,32 @@ const genericTasks = (title) => [
   { role: 'researcher', task: 'validate_offer', title: `Research: ${title}`, instructions: `Work out what is needed to complete this milestone: "${title}".`, requires: [], optional: [], deliver: [], owner: 'agent' },
   { role: 'ops', task: 'weekly_ops_plan', title: `Plan: ${title}`, instructions: `Plan the steps, owners and deadlines to complete: "${title}".`, requires: [], optional: [], deliver: [], owner: 'agent' }];
 
-async function askDirector(store, system, user, maxTokens) {
+async function askDirector(store, system, user, maxTokens, label = 'Planning') {
   const w = store.state, dir = Object.values(w.agents).find((a) => a.role === 'director'); assert(dir, 'No Director yet.');
   guardrails.assertBudget(w, dir.id);
-  const res = await providers.complete(store, { agent: dir, purpose: 'planner', json: true, maxTokens, system, messages: [{ role: 'user', content: user }] });
+  const rules = memory.constraints(w), mem = memory.block(w);
+  const res = await activity.track(store, dir.id, label, () => providers.complete(store, { agent: dir, purpose: 'planner', json: true, maxTokens, system: [system, rules, mem].filter(Boolean).join('\n\n'), messages: [{ role: 'user', content: user }] }));
   guardrails.recordSpend(store, { agentId: dir.id, cents: res.costCents, tokensIn: res.tokensIn, tokensOut: res.tokensOut, model: res.model });
   return parseJsonLoose(res.text);
 }
 const words = (s) => new Set(String(s).toLowerCase().split(/\W+/).filter((x) => x.length > 2));
 
-// Step 2: milestones. Template first; a connected model may adapt them. Falls back silently to the template.
+const constraintsJson = (w) => { const m = w.mission || {}; return { targetUSD: (m.targetCents || 0) / 100, capitalUSD: (m.capitalCents || 0) / 100, lossLimitUSD: (m.riskCents || 0) / 100, deadline: m.deadline || undefined, ownerRules: m.notes || undefined }; };
+
+// Step 2: milestones and the capital ladder. Template first; a connected model may adapt both in ONE call. Falls back silently.
 async function draftMilestones(store) {
-  const w = store.state, goal = w.mission.name, tpl = template(goal, w);
-  let ms = withIds(tpl.milestones), adapted = false;
+  const w = store.state, goal = w.mission.name, pick = pathFor(w, goal), tpl = template(goal, w, pick), cycle = w.journey.cycle || 0;
+  if (cycle === 0) w.journey.basePath = tpl.path;
+  const fallbackStrategy = strategy.draft(w, { pathLabel: PATHS[w.journey.basePath || tpl.path].label, path: w.journey.basePath || tpl.path });
+  let ms = withIds(tpl.milestones), adapted = false, proposed = null;
   if (!providers.isOffline(store)) {
     try {
-      const base = tpl.milestones.map((x) => ({ keep: x.key, title: x.title, why: x.why, days: x.days }));
+      const base = tpl.milestones.map((x) => ({ keep: x.key, title: x.title, why: x.why, days: x.days })), st = cycle > 0 ? strategy.current(w) : null;
       const j = await askDirector(store, 'You are the Director planning a small business roadmap. Reply with JSON only.',
-        JSON.stringify({ goal, worldFocus: w.focus || undefined, baseline: base,
-          rules: ['Return {"milestones":[{"keep":"<baseline keep id, optional>","title":"","why":"","days":0}]}', 'Use 3 to 6 milestones.', 'Reuse a baseline milestone by copying its keep id, adjusting title, why and days to fit the goal.', 'Add a new milestone (no keep) only if the goal truly needs one the baseline lacks, at most 2.', 'Drop steps the goal does not need. Never add steps about platforms or stores the goal does not mention.'] }), 700);
+        JSON.stringify({ goal, worldFocus: w.focus || undefined, constraints: constraintsJson(w), currentStage: st ? { title: st.title, thesis: st.thesis } : undefined, baseline: base,
+          rules: ['Return {"milestones":[{"keep":"<baseline keep id, optional>","title":"","why":"","days":0}]' + (cycle === 0 ? ',"strategy":{"stages":[{"title":"","thesis":"","path":"outreach|ecommerce|content|product|trading|general","startBudgetCents":0}]}' : '') + '}', 'Use 3 to 6 milestones.', 'Reuse a baseline milestone by copying its keep id, adjusting title, why and days to fit the goal.', 'Add a new milestone (no keep) only if the goal truly needs one the baseline lacks, at most 2.', 'Drop steps the goal does not need. Never add steps about platforms or stores the goal does not mention.',
+            'Everything must fit the owner\'s capital and loss limit. Never plan anything that costs more than the capital.',
+            ...(cycle === 0 ? ['strategy: 1 to 4 stages. Stage 1 is the cheapest, fastest route to first verified cash that fits the capital. Later stages reinvest profit into something bigger, so the owner does not depend on one idea. startBudgetCents applies to stage 1 only and may not exceed the capital.'] : [])] }), 900, 'Drafting milestones');
       const list = j && Array.isArray(j.milestones) ? j.milestones : null;
       if (list && list.length >= 3 && list.length <= 6) {
         const seen = new Set(); let added = 0; const out = [];
@@ -112,8 +135,10 @@ async function draftMilestones(store) {
         }
         ms = withIds(out); adapted = true;
       }
+      proposed = cycle === 0 && j ? j.strategy : null;
     } catch (e) { w.journey.notice = 'The Director could not adapt the plan, so this is the standard plan for your goal. ' + e.message; }
   }
+  if (cycle === 0 || !w.strategy) w.strategy = strategy.validate(proposed, w, fallbackStrategy, Object.keys(PATHS));
   w.journey.milestones = ms; w.journey.path = tpl.path; w.journey.pathLabel = tpl.label; w.journey.adapted = adapted;
 }
 
@@ -142,28 +167,50 @@ function neededAgents(rm) {
   return out;
 }
 
-// Step 3: the full roadmap. A connected model personalises each task's instructions to the goal.
-async function buildRoadmap(store) {
+// Fit the plan to the owner's money in code, not just in prompts: tiny capital means no paid ads, and any ad test is capped.
+function budgetFit(rm, mission) {
+  if (!mission) return;
+  const cap = mission.capitalCents || 0, cents = (n) => '$' + Math.floor(n / 100);
+  for (const ms of rm.milestones) {
+    if (cap < 3000 && ms.tasks.some((t) => t.role === 'ad_manager')) {
+      ms.tasks = ms.tasks.map((t) => t.role === 'ad_manager' ? { ...t, role: 'social_manager', task: 'post_batch', title: 'Plan free traffic instead of paid ads', instructions: `The owner's capital is ${cents(cap)}, too small for paid ads. Plan free ways to reach buyers: communities, direct messages, partnerships, posts.`, requires: [], optional: [] } : t);
+      const seen = new Set(); ms.tasks = ms.tasks.filter((t) => { const key = t.role + ':' + t.task; if (seen.has(key)) return false; seen.add(key); return true; });
+    }
+    for (const t of ms.tasks) if (t.role === 'ad_manager') t.instructions = (`The whole paid test may cost at most ${cents(Math.floor(cap * 0.5))}. ` + (t.instructions || '')).trim();
+  }
+}
+
+// Step 3: the roadmap. The structure is instant (it comes from templates); tailoring the task wording with a connected
+// model happens in the background, so the owner can read the plan right away instead of waiting on it.
+function buildRoadmapBase(store) {
   const w = store.state, goal = w.mission.name, prev = w.roadmap ? w.roadmap.requirements : [];
-  const rm = { id: id('road'), path: w.journey.path, label: w.journey.pathLabel, goal, status: 'draft', paused: false, createdAt: Date.now(),
+  const st = strategy.current(w);
+  const rm = { id: id('road'), path: w.journey.path, label: w.journey.pathLabel, goal, stage: st ? st.title : null, status: 'draft', paused: false, createdAt: Date.now(), extras: [],
     summary: `${w.journey.pathLabel || 'Plan'}: ${w.journey.milestones.length} milestones toward "${goal}". Only the integrations the tasks truly need are requested.`,
     milestones: JSON.parse(JSON.stringify(w.journey.milestones)) };
   if (rm.path === 'trading') rm.summary += ' Trading carries risk of loss and this plan promises no returns; it paper-trades before any real money.';
+  budgetFit(rm, w.mission);
   rm.requirements = deriveRequirements(rm, prev); rm.agents = neededAgents(rm);
-  if (!providers.isOffline(store)) {
-    try {
-      const tasks = rm.milestones.flatMap((x) => x.tasks.filter((t) => t.owner === 'agent').map((t) => ({ id: t.id, role: t.role, title: t.title })));
-      const j = await askDirector(store, 'You are the Director. Tailor task instructions to the goal. Reply with JSON only.',
-        JSON.stringify({ goal, worldFocus: w.focus || undefined, tasks, rules: ['Return {"summary":"","tasks":[{"id":"","instructions":""}]}', 'summary: two sentences on how this plan reaches the goal.', 'instructions: one to three sentences specific to the goal, under 300 characters. Reference the niche, offer or audience implied by the goal.', 'Only use ids from the list. Do not invent new tasks.'] }), 1400);
-      if (j) {
-        if (j.summary) rm.summary = clip(j.summary, 500);
-        const byId = new Map(rm.milestones.flatMap((x) => x.tasks).map((t) => [t.id, t]));
-        for (const e of Array.isArray(j.tasks) ? j.tasks : []) { const t = byId.get(e.id); if (t && e.instructions) t.instructions = clip(e.instructions, 300); }
-      }
-    } catch (e) { w.journey.notice = 'The Director could not tailor the task wording, so tasks use the standard instructions. ' + e.message; }
-  }
   w.roadmap = rm;
+  return rm;
 }
+async function tailorRoadmap(store) {
+  const w = store.state, rm = w.roadmap; if (!rm || providers.isOffline(store)) return;
+  const goal = w.mission.name, rmId = rm.id; rm.tailoring = true; store.change('state');
+  try {
+    const tasks = rm.milestones.flatMap((x) => x.tasks.filter((t) => t.owner === 'agent').map((t) => ({ id: t.id, role: t.role, title: t.title })));
+    const j = await askDirector(store, 'You are the Director. Tailor task instructions to the goal. Reply with JSON only.',
+      JSON.stringify({ goal, worldFocus: w.focus || undefined, constraints: constraintsJson(w), tasks, rules: ['Return {"summary":"","tasks":[{"id":"","instructions":""}]}', 'summary: two sentences on how this plan reaches the goal.', 'instructions: one to three sentences specific to the goal, under 300 characters. Reference the niche, offer or audience implied by the goal. Respect the owner\'s capital: no task may need more money than the capital.', 'Only use ids from the list. Do not invent new tasks.'] }), 1100, 'Tailoring the plan');
+    const cur = store.state.roadmap; // the owner may have moved on while the model was thinking
+    if (j && cur && cur.id === rmId) {
+      if (j.summary) cur.summary = clip(j.summary, 500);
+      const byId = new Map(cur.milestones.flatMap((x) => x.tasks).map((t) => [t.id, t]));
+      for (const e of Array.isArray(j.tasks) ? j.tasks : []) { const t = byId.get(e.id); if (t && e.instructions && t.role !== 'ad_manager') t.instructions = clip(e.instructions, 300); }
+    }
+  } catch (e) { w.journey.notice = 'The Director could not tailor the task wording, so tasks use the standard instructions. ' + e.message; }
+  finally { const cur = store.state.roadmap; if (cur && cur.id === rmId) cur.tailoring = false; store.change('state'); }
+}
+async function buildRoadmap(store) { buildRoadmapBase(store); await tailorRoadmap(store); }
 
 const DEFAULT_NAMES = { researcher: 'Scout', data_analyst: 'Delta', lead_generator: 'Prospect', email_marketer: 'Herald', sales_closer: 'Closer', copywriter: 'Quill', content_manager: 'Editor', social_manager: 'Echo', designer: 'Pixel', ad_manager: 'Pilot', ecommerce_manager: 'Merchant', builder: 'Forge', developer: 'Dev', customer_support: 'Helper', ops: 'Ops', finance: 'Tally', critic: 'Cato', custom: 'Agent' };
 
@@ -213,4 +260,4 @@ function requirementStatus(world, req) {
 const hasRevenueSource = (world) => Object.values(world.connectors).some((c) => SOURCE_KINDS.includes(c.kind) && c.status === 'ready');
 const roadmapNeedsSource = (rm) => !rm.requirements.some((r) => SOURCE_KINDS.includes(r.kind));
 
-module.exports = { PATHS, SOURCE_KINDS, classify, platformOf, template, draftMilestones, saveMilestones, buildRoadmap, deriveRequirements, neededAgents, deployActions, requirementStatus, hasRevenueSource, roadmapNeedsSource, genericTasks };
+module.exports = { askDirector, PATHS, SOURCE_KINDS, classify, platformOf, template, pathFor, budgetFit, draftMilestones, saveMilestones, buildRoadmap, buildRoadmapBase, tailorRoadmap, deriveRequirements, neededAgents, deployActions, requirementStatus, hasRevenueSource, roadmapNeedsSource, genericTasks };
