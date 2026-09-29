@@ -22,6 +22,7 @@ const activity = require('./lib/activity');
 const sites = require('./lib/sites');
 const sop = require('./lib/sop');
 const memory = require('./lib/memory');
+const comfy = require('./lib/comfy');
 const { ROLES } = require('./lib/roles');
 
 const PORT = int(process.env.PORT, 8787);
@@ -89,6 +90,19 @@ function build(root) {
   on('POST', '/api/sop/issue', ({ store }) => ok(sop.issue(store)));
   on('POST', '/api/memory/note', ({ store, body }) => { const t = memory.addOwnerNote(store.state, body.text); assert(t, 'Write the rule in a few words.'); store.change('state'); return ok(); });
   on('POST', '/api/memory/note/remove', ({ store, body }) => { const m = memory.ensure(store.state); m.ownerNotes = m.ownerNotes.filter((n) => n.text !== body.text); store.change('state'); return ok(); });
+  on('GET', '/api/comfy/detect', async () => ok(await comfy.detect()));
+  // One click: find ComfyUI, create the connector if needed, save the address, test it and pick a model.
+  on('POST', '/api/comfy/connect', async ({ store, body }) => {
+    const found = body && body.baseUrl ? { found: true, baseUrl: comfy.normalize(body.baseUrl) } : await comfy.detect();
+    assert(found.found, 'I could not find ComfyUI. Start it, then try again (or type its address in the ComfyUI connector).');
+    let c = comfy.findConnector(store.state) || Object.values(store.state.connectors).find((x) => x.kind === 'comfyui');
+    if (!c) c = mutate(store, () => station.createConnector(store.state, { kind: 'comfyui' }));
+    integrations.configure(store, c.id, { config: { baseUrl: found.baseUrl } });
+    const r = await integrations.test(store, c.id); store.change('state');
+    return ok({ connector: integrations.publicConnector(store.state.connectors[c.id]), detail: r.detail });
+  });
+  on('POST', '/api/comfy/workflow', ({ store, body }) => ok(comfy.saveWorkflow(store, body.workflow)));
+  on('POST', '/api/comfy/test-image', async ({ store, body }) => { assert(comfy.available(store.state), 'Connect ComfyUI first.'); const r = await comfy.generate(store, [{ name: 'test', prompt: String((body && body.prompt) || 'a small potted plant on a wooden desk, soft morning light, product photo').slice(0, 400) }], { max: 1 }); assert(r.images.length, r.errors[0] || 'No image was produced.', 502); return ok({ images: r.images.map((i) => ({ name: i.name, url: `/sites/${store.id || store.defaultId}/${i.name}` })) }); });
   on('POST', '/api/site/links', ({ store, body }) => { sites.setLinks(store, body.links || {}); return ok({ links: sites.links(store) }); });
   on('POST', '/api/journey/task/:id/remove', ({ store, params }) => { journey.removeTask(store, params.id); return ok(); });
   on('POST', '/api/journey/task/:id/retry', ({ store, params }) => { journey.retryTask(store, params.id); return ok(); });
@@ -109,6 +123,7 @@ function build(root) {
     }
     if (body.concurrency) { const c = st.concurrency; if (body.concurrency.ollama != null) c.ollama = Math.max(1, Math.min(8, int(body.concurrency.ollama, c.ollama))); if (body.concurrency.other != null) c.other = Math.max(1, Math.min(16, int(body.concurrency.other, c.other))); }
     if (['fast', 'balanced', 'thorough'].includes(body.speed)) st.speed = body.speed;
+    if (body.loop && typeof body.loop === 'object') { const l = st.loop = st.loop || {}; if (['off', 'smart', 'always'].includes(body.loop.evaluate)) l.evaluate = body.loop.evaluate; if (body.loop.maxRevisions != null) l.maxRevisions = Math.max(0, Math.min(3, int(body.loop.maxRevisions, 1))); if (body.loop.maxRounds != null) l.maxRounds = Math.max(0, Math.min(500, int(body.loop.maxRounds, 0))); }
     if (body.autoDelegate != null) st.autoDelegate = !!body.autoDelegate;
     if (body.autoContinue != null) st.autoContinue = !!body.autoContinue;
     if (body.waitMinutes != null) st.waitMinutes = Math.max(0, Math.min(240, int(body.waitMinutes, 10)));
