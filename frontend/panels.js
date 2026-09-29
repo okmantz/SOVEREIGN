@@ -163,11 +163,12 @@ const fresh = () => { const st = SOV.S.settings; draft = { provider: st.provider
 function settings() {
   const S = SOV.S, st = S.settings; if (!draft) fresh();
   const d = draft, rerender = () => { SOV.drawerDirty = false; SOV.render(); };
+  if (!d.company) d.company = { enabled: true, autonomy: 'approval_only', allowPaid: false, autopilot: false, ...(st.company || {}) };
   const providerLabels = { mock: 'Offline demo (no key)', openrouter: 'OpenRouter', ollama: 'Ollama (local models)', openai: 'OpenAI-compatible' };
   const saveAll = async () => {
     if (d.key) await api('POST', '/secrets', { name: d.provider === 'openai' ? 'openai' : 'openrouter', value: d.key });
     await api('POST', '/settings', { provider: { name: d.provider, model: d.model }, ollama: { host: d.ollamaHost, keepAlive: d.keepAlive, numCtx: d.numCtx }, concurrency: { ollama: d.par, other: d.parOther }, speed: d.speed, loop: { evaluate: d.loopEval, maxRevisions: d.loopRev, maxRounds: d.loopRounds }, autoDelegate: d.autoDelegate, autoContinue: d.autoContinue, waitMinutes: d.waitMinutes, intro: d.intro, openaiCompat: { baseUrl: d.baseUrl },
-      policy: { directorStructure: d.policy.directorStructure, connectorWrites: d.policy.connectorWrites }, budgets: d.budgets });
+      policy: { directorStructure: d.policy.directorStructure, connectorWrites: d.policy.connectorWrites }, budgets: d.budgets, company: d.company });
     d.key = '';
   };
   const providerBox = [];
@@ -212,6 +213,13 @@ function settings() {
     h('div', { class: 'row' }, SOV.field('Station budget per day (USD)', h('input', { type: 'number', min: '0', value: d.budgets.globalDailyCents / 100, onchange: (e) => { d.budgets.globalDailyCents = Math.round(e.target.value * 100); } }), 'Spans every world.'),
       SOV.field('Per agent per day (USD)', h('input', { type: 'number', min: '0', value: d.budgets.perAgentDailyCents / 100, onchange: (e) => { d.budgets.perAgentDailyCents = Math.round(e.target.value * 100); } }))),
     h('button', { class: 'btn', onclick: async () => { try { await saveAll(); toast('Guardrails saved.'); } catch (_) {} } }, 'Save guardrails'),
+    h('h3', {}, 'Company: CEO, CFO and ventures'),
+    h('p', { class: 'settings-note', style: 'margin:0' }, 'Everything here is free by default. The CEO watches the numbers, the CFO judges every spend, and nothing that costs money can run until you allow it below.'),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: d.company.enabled, onchange: (e) => { d.company.enabled = e.target.checked; } }), h('span', {}, 'Run the company layer', h('small', {}, 'Turns the goal into a venture the CEO manages, with kill conditions and a CFO.'))),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !d.company.allowPaid, onchange: (e) => { d.company.allowPaid = !e.target.checked; } }), h('span', {}, 'Free only (recommended)', h('small', {}, 'Refuses any action that costs money: paid image APIs, paid hosting, ads. Untick to let the CFO authorise paid actions within your caps.'))),
+    SOV.field('How much the agents may do alone', h('select', { onchange: (e) => { d.company.autonomy = e.target.value; }, value: d.company.autonomy }, h('option', { value: 'approval_only' }, 'Ask me before anything is published or sent (recommended)'), h('option', { value: 'permissioned' }, 'Earn trust: low-risk actions run alone once an agent has a good record')), 'Level 4 actions (contracts, large payments, anything irreversible) always wait for you, in both modes.'),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: d.company.autopilot, onchange: (e) => { d.company.autopilot = e.target.checked; } }), h('span', {}, 'Autopilot schedule', h('small', {}, 'Checks the site and payments every 5 minutes, leads hourly, and reviews strategy and capital nightly and weekly. Pauses itself if it keeps failing.'))),
+    h('div', { class: 'row' }, h('button', { class: 'btn', onclick: async () => { try { await saveAll(); toast('Company settings saved.'); } catch (_) {} } }, 'Save'), h('a', { class: 'btn', href: '/company.html', target: '_blank', rel: 'noopener' }, 'Open the Founder Control Center')),
     h('h3', {}, 'Interface'),
     h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: d.intro, onchange: (e) => { d.intro = e.target.checked; } }), h('span', {}, 'Play the opening sequence at startup', h('small', {}, 'Click or press any key skips it.'))),
     h('div', { class: 'row' }, h('button', { class: 'btn', onclick: async () => { try { await saveAll(); } catch (_) {} } }, 'Save'), h('button', { class: 'btn', onclick: () => window.Intro.play(true) }, 'Replay intro')),
@@ -391,10 +399,23 @@ function worldGraph(S) {
   }
   return svg;
 }
+// One click: a whole business (world, CEO, CFO, the right specialists, budgets, kill rules) from a recipe. The plan still waits for your approval.
+let RC = null, rcForm = { recipe: 'saas', goal: '', target: 1000, capital: 100, loss: 50 };
+function recipeLauncher() {
+  if (!RC) { api('GET', '/launch/recipes').then((r) => { RC = r.recipes; SOV.render(); }).catch(() => { RC = []; }); return h('div', { class: 'muted' }, 'Loading recipes…'); }
+  if (!RC.length) return null; const cur = RC.find((x) => x.id === rcForm.recipe) || RC[0];
+  return h('div', { class: 'card stack' }, h('strong', {}, 'Launch a company from a recipe'),
+    h('p', { class: 'muted', style: 'margin:0' }, 'Starts a new world with the CEO, CFO and the specialists that kind of business needs, all free to run. You approve the plan before anything starts.'),
+    SOV.field('Kind of business', h('select', { onchange: (e) => { rcForm.recipe = e.target.value; SOV.render(); }, value: rcForm.recipe }, RC.map((r) => h('option', { value: r.id }, r.name)))),
+    h('div', { class: 'muted', style: 'font-size:12px' }, 'Team: ' + cur.roles.map((x) => x.label).join(', ') + '. Kill rule: no revenue after ' + cur.kill_rules.max_days_no_revenue + ' days.'),
+    SOV.field('Goal in one sentence', h('input', { type: 'text', value: rcForm.goal, placeholder: 'e.g. Launch a tiny invoice-reminder app for dental clinics', oninput: (e) => { rcForm.goal = e.target.value; } })),
+    h('div', { class: 'row' }, SOV.field('Profit target (USD)', h('input', { type: 'number', min: '1', value: rcForm.target, onchange: (e) => { rcForm.target = +e.target.value; } })), SOV.field('Capital (USD)', h('input', { type: 'number', min: '0', value: rcForm.capital, onchange: (e) => { rcForm.capital = +e.target.value; } })), SOV.field('Most you can lose (USD)', h('input', { type: 'number', min: '0', value: rcForm.loss, onchange: (e) => { rcForm.loss = +e.target.value; } }))),
+    h('button', { class: 'btn primary', onclick: async () => { try { const r = await api('POST', '/launch/recipe', { recipe: rcForm.recipe, goal: rcForm.goal, targetCents: Math.round(rcForm.target * 100), capitalCents: Math.round(rcForm.capital * 100), riskCents: Math.round(rcForm.loss * 100) }); toast('Company launched. Open it to approve the plan.'); await SOV.setWorld(r.worldId); } catch (_) {} } }, 'Launch'));
+}
 function worldsPanel() {
   const S = SOV.S, stageName = (s) => (SOV.STEPS.find((x) => x[0] === s) || [0, s])[1];
   return h('div', { class: 'stack' }, h('p', { class: 'sub' }, 'A world is a whole station of its own: its own Director, rooms, agents, goal and roadmap. Connect worlds with portals so one can hand work to another, for example an e-commerce world feeding a trading world.'),
-    worldGraph(S), h('button', { class: 'btn primary', onclick: SOV.openWorldCreate }, '+ New world'),
+    worldGraph(S), h('button', { class: 'btn primary', onclick: SOV.openWorldCreate }, '+ New world'), recipeLauncher(),
     ...S.worlds.map((w) => { const others = S.worlds.filter((x) => x.id !== w.id && !w.links.includes(x.id)); let pick = others[0] && others[0].id;
       return h('div', { class: 'card wcard' + (w.id === S.world.id ? ' on' : '') }, h('i', { class: 'wdot', style: `background:${w.color};margin-top:5px` }),
         h('div', { style: 'flex:1;min-width:0' }, h('div', { class: 'row' }, h('strong', {}, w.name), h('span', { class: 'chip' }, (S.worldKinds[w.kind] || {}).label || w.kind), w.id === S.world.id ? h('span', { class: 'pill ok' }, 'viewing') : null),
