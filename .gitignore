@@ -1,0 +1,7 @@
+node_modules/
+.sovereign/
+# Saved state and keys live in ./data (it also ignores itself)
+data/
+*.log
+.DS_Store
+src-tauri/target/
