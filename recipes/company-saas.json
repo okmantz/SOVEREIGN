@@ -1,66 +1,58 @@
 {
+  "id": "saas",
   "name": "SaaS World",
-  "business_models": [
-    "saas",
-    "api"
+  "kind": "product",
+  "roles": [
+    {
+      "id": "director",
+      "label": "Director"
+    },
+    {
+      "id": "ceo",
+      "label": "CEO"
+    },
+    {
+      "id": "cfo",
+      "label": "CFO"
+    },
+    {
+      "id": "product_manager",
+      "label": "Product Manager"
+    },
+    {
+      "id": "developer",
+      "label": "Developer"
+    },
+    {
+      "id": "designer",
+      "label": "Designer"
+    },
+    {
+      "id": "devops",
+      "label": "DevOps"
+    },
+    {
+      "id": "copywriter",
+      "label": "Copywriter"
+    },
+    {
+      "id": "sales_closer",
+      "label": "Sales Closer"
+    },
+    {
+      "id": "customer_support",
+      "label": "Customer Support"
+    },
+    {
+      "id": "finance",
+      "label": "Finance"
+    }
   ],
   "integrations": [
     "stripe",
     "resend",
     "github",
     "vercel"
-  ],
-  "roles": [
-    {
-      "role": "CEO",
-      "purpose": "Manages the business: strategy, selection, kill/pivot/scale",
-      "level": 0
-    },
-    {
-      "role": "CFO",
-      "purpose": "Budgets, runway, unit economics, spend authorization",
-      "level": 0
-    },
-    {
-      "role": "Product Manager",
-      "purpose": "MVP scope, roadmap",
-      "level": 1
-    },
-    {
-      "role": "Developer",
-      "purpose": "Build, test, deploy",
-      "level": 2
-    },
-    {
-      "role": "Designer",
-      "purpose": "UI, landing page, brand",
-      "level": 1
-    },
-    {
-      "role": "DevOps",
-      "purpose": "Deploy, monitor, incident response",
-      "level": 2
-    },
-    {
-      "role": "Marketing",
-      "purpose": "Acquisition channels",
-      "level": 2
-    },
-    {
-      "role": "Sales",
-      "purpose": "Outbound and demos",
-      "level": 2
-    },
-    {
-      "role": "Support",
-      "purpose": "Onboarding, tickets, churn",
-      "level": 2
-    },
-    {
-      "role": "Finance",
-      "purpose": "Bookkeeping and verified ledger hygiene",
-      "level": 1
-    }
   ],
   "kpis": [
     "mrr",
@@ -83,5 +75,10 @@
   "kill_rules": {
     "max_days_no_revenue": 60,
     "validation_budget_burn_kill": 0.7
-  }
+  },
+  "business_models": [
+    "saas",
+    "api"
+  ],
+  "note": "Launch from the Worlds panel (Launch a company from a recipe). Roles are Sovereign role ids; each has a job, a playbook and a tool list."
 }

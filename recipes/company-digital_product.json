@@ -1,64 +1,57 @@
 {
+  "id": "digital_product",
   "name": "Digital Product World",
-  "business_models": [
-    "digital_product"
+  "kind": "product",
+  "roles": [
+    {
+      "id": "director",
+      "label": "Director"
+    },
+    {
+      "id": "ceo",
+      "label": "CEO"
+    },
+    {
+      "id": "cfo",
+      "label": "CFO"
+    },
+    {
+      "id": "researcher",
+      "label": "Market Researcher"
+    },
+    {
+      "id": "product_manager",
+      "label": "Product Manager"
+    },
+    {
+      "id": "designer",
+      "label": "Designer"
+    },
+    {
+      "id": "builder",
+      "label": "Builder"
+    },
+    {
+      "id": "copywriter",
+      "label": "Copywriter"
+    },
+    {
+      "id": "sales_closer",
+      "label": "Sales Closer"
+    },
+    {
+      "id": "customer_support",
+      "label": "Customer Support"
+    },
+    {
+      "id": "finance",
+      "label": "Finance"
+    }
   ],
   "integrations": [
     "stripe",
     "gumroad",
     "resend"
-  ],
-  "roles": [
-    {
-      "role": "CEO",
-      "purpose": "Manages the business: strategy, selection, kill/pivot/scale",
-      "level": 0
-    },
-    {
-      "role": "CFO",
-      "purpose": "Budgets, runway, unit economics, spend authorization",
-      "level": 0
-    },
-    {
-      "role": "Research",
-      "purpose": "Demand research",
-      "level": 0
-    },
-    {
-      "role": "Product",
-      "purpose": "Define the product",
-      "level": 1
-    },
-    {
-      "role": "Designer",
-      "purpose": "Design",
-      "level": 1
-    },
-    {
-      "role": "Builder",
-      "purpose": "Create the product",
-      "level": 1
-    },
-    {
-      "role": "Marketing",
-      "purpose": "Acquisition",
-      "level": 2
-    },
-    {
-      "role": "Sales",
-      "purpose": "Sales pages and follow-up",
-      "level": 2
-    },
-    {
-      "role": "Support",
-      "purpose": "Customer support",
-      "level": 2
-    },
-    {
-      "role": "Finance",
-      "purpose": "Bookkeeping and verified ledger hygiene",
-      "level": 1
-    }
   ],
   "kpis": [
     "sales",
@@ -79,5 +72,9 @@
   "kill_rules": {
     "max_days_no_revenue": 45,
     "validation_budget_burn_kill": 0.7
-  }
+  },
+  "business_models": [
+    "digital_product"
+  ],
+  "note": "Launch from the Worlds panel (Launch a company from a recipe). Roles are Sovereign role ids; each has a job, a playbook and a tool list."
 }

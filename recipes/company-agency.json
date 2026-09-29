@@ -1,66 +1,58 @@
 {
+  "id": "agency",
   "name": "Agency World",
-  "business_models": [
-    "service",
-    "leadgen"
+  "kind": "services",
+  "roles": [
+    {
+      "id": "director",
+      "label": "Director"
+    },
+    {
+      "id": "ceo",
+      "label": "CEO"
+    },
+    {
+      "id": "cfo",
+      "label": "CFO"
+    },
+    {
+      "id": "lead_generator",
+      "label": "Lead Generator"
+    },
+    {
+      "id": "sales_closer",
+      "label": "Sales Closer"
+    },
+    {
+      "id": "account_manager",
+      "label": "Account Manager"
+    },
+    {
+      "id": "developer",
+      "label": "Developer"
+    },
+    {
+      "id": "designer",
+      "label": "Designer"
+    },
+    {
+      "id": "copywriter",
+      "label": "Copywriter"
+    },
+    {
+      "id": "ops",
+      "label": "Operations"
+    },
+    {
+      "id": "finance",
+      "label": "Finance"
+    }
   ],
   "integrations": [
     "stripe",
     "resend",
     "google_calendar",
     "notion"
-  ],
-  "roles": [
-    {
-      "role": "CEO",
-      "purpose": "Manages the business: strategy, selection, kill/pivot/scale",
-      "level": 0
-    },
-    {
-      "role": "CFO",
-      "purpose": "Budgets, runway, unit economics, spend authorization",
-      "level": 0
-    },
-    {
-      "role": "Lead Generator",
-      "purpose": "Finds and qualifies prospects",
-      "level": 1
-    },
-    {
-      "role": "Sales",
-      "purpose": "Outreach, calls, proposals",
-      "level": 2
-    },
-    {
-      "role": "Account Manager",
-      "purpose": "Client comms and retention",
-      "level": 2
-    },
-    {
-      "role": "Developer",
-      "purpose": "Delivery",
-      "level": 2
-    },
-    {
-      "role": "Designer",
-      "purpose": "Delivery",
-      "level": 1
-    },
-    {
-      "role": "Copywriter",
-      "purpose": "Delivery and outreach copy",
-      "level": 1
-    },
-    {
-      "role": "Fulfillment",
-      "purpose": "Deliver client work",
-      "level": 2
-    },
-    {
-      "role": "Finance",
-      "purpose": "Bookkeeping and verified ledger hygiene",
-      "level": 1
-    }
   ],
   "kpis": [
     "leads",
@@ -82,5 +74,10 @@
   "kill_rules": {
     "max_days_no_revenue": 45,
     "validation_budget_burn_kill": 0.7
-  }
+  },
+  "business_models": [
+    "service",
+    "leadgen"
+  ],
+  "note": "Launch from the Worlds panel (Launch a company from a recipe). Roles are Sovereign role ids; each has a job, a playbook and a tool list."
 }

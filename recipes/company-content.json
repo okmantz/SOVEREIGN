@@ -1,69 +1,53 @@
 {
+  "id": "content",
   "name": "Content World",
-  "business_models": [
-    "content"
+  "kind": "content",
+  "roles": [
+    {
+      "id": "director",
+      "label": "Director"
+    },
+    {
+      "id": "ceo",
+      "label": "CEO"
+    },
+    {
+      "id": "cfo",
+      "label": "CFO"
+    },
+    {
+      "id": "researcher",
+      "label": "Market Researcher"
+    },
+    {
+      "id": "content_manager",
+      "label": "Content Manager"
+    },
+    {
+      "id": "designer",
+      "label": "Designer"
+    },
+    {
+      "id": "seo_specialist",
+      "label": "SEO Specialist"
+    },
+    {
+      "id": "social_manager",
+      "label": "Social Media Manager"
+    },
+    {
+      "id": "data_analyst",
+      "label": "Data Analyst"
+    },
+    {
+      "id": "finance",
+      "label": "Finance"
+    }
   ],
   "integrations": [
     "stripe",
     "google_sheets",
     "webhook"
-  ],
-  "roles": [
-    {
-      "role": "CEO",
-      "purpose": "Manages the business: strategy, selection, kill/pivot/scale",
-      "level": 0
-    },
-    {
-      "role": "CFO",
-      "purpose": "Budgets, runway, unit economics, spend authorization",
-      "level": 0
-    },
-    {
-      "role": "Research",
-      "purpose": "Topic and keyword research",
-      "level": 0
-    },
-    {
-      "role": "Writer",
-      "purpose": "Articles/scripts",
-      "level": 1
-    },
-    {
-      "role": "Video",
-      "purpose": "Video production",
-      "level": 1
-    },
-    {
-      "role": "Designer",
-      "purpose": "Thumbnails/graphics",
-      "level": 1
-    },
-    {
-      "role": "SEO",
-      "purpose": "On-page and distribution",
-      "level": 2
-    },
-    {
-      "role": "Distribution",
-      "purpose": "Publishing and promotion",
-      "level": 2
-    },
-    {
-      "role": "Monetization",
-      "purpose": "Affiliate, ads, sponsorship, products",
-      "level": 2
-    },
-    {
-      "role": "Analyst",
-      "purpose": "Analytics",
-      "level": 0
-    },
-    {
-      "role": "Finance",
-      "purpose": "Bookkeeping and verified ledger hygiene",
-      "level": 1
-    }
   ],
   "kpis": [
     "traffic",
@@ -84,5 +68,9 @@
   "kill_rules": {
     "max_days_no_revenue": 90,
     "validation_budget_burn_kill": 0.8
-  }
+  },
+  "business_models": [
+    "content"
+  ],
+  "note": "Launch from the Worlds panel (Launch a company from a recipe). Roles are Sovereign role ids; each has a job, a playbook and a tool list."
 }
