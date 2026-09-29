@@ -6,7 +6,9 @@
 
 **v0.3 (this repo)** Guided journey (goal, milestones, roadmap, setup, autopilot), worlds and portals, coded per-role jobs with saved settings, Director assigns work, opening sequence, smoothed characters, wider panel with Integrations, nine more adapters (17 total), Ollama streaming and queueing, data stored in the project folder.
 
-**v0.4 Prove it on live accounts**
+**v0.4 (this repo)** Company layer: CEO above the Director, CFO and spend gate, ventures with kill conditions, business memory, CRM, permissioned tools with earned trust, per-venture sandbox, free deploy (local preview, ZIP for any free host, or a free host token), Stripe checkout and webhook, five business recipes, Founder Control Center. Free by default.
+
+**v0.4.x Prove it on live accounts**
 - Run every adapter against real accounts, fix what breaks, add Stripe webhooks, email warmup schedules, ad spend actions with hard caps, GitHub, MCP servers.
 - Night Shift: scheduled Director check-ins and recipe runs inside an explicit leash, every away-action logged.
 - Recipes engine (`recipes/` format): reusable multi-step venture playbooks.

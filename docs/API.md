@@ -30,3 +30,11 @@ Most endpoints act on one **world**. Send `x-world: <id>` (or `?world=<id>`); wi
 | POST | `/api/settings` · `/api/secrets` · `/api/secrets/ingest` | Provider, Ollama (host, keepAlive, numCtx), concurrency, intro, policy, budgets; write-only keys (`openrouter`, `openai`); ingest secret |
 | POST | `/api/ledger/claim` | File an *unverified* claim |
 | POST | `/api/ingest/:source` | Signed ledger event (see LEDGER.md) |
+
+## Company layer (v0.4)
+
+- `GET /api/launch/recipes`, `POST /api/launch/recipe {recipe, goal, targetCents, capitalCents, riskCents}`: launch a whole company from a recipe.
+- `POST /api/settings {company: {enabled, autonomy: approval_only|permissioned, allowPaid, autopilot}}`: the company switches. `allowPaid` is false by default (free only).
+- `GET /api/state` includes `company` (autonomy, freeOnly, the world's venture, pending approvals, dashboard).
+- `GET /api/company/{dashboard,briefing,ventures,ventures/:id,opportunities,approvals,events,tools,agents,settings,autopilot,recipes,capital}`, `POST /api/company/{ceo/tick,autopilot/run,autopilot/resume,capital,secrets,opportunities/scan,agents/grant,approvals/:id/approve|reject}`: the Founder Control Center API. Same localhost bind and origin check as everything else.
+- Public, self-authenticating: `POST /hooks/stripe` (signature), `POST /hooks/lead|event/:venture/:token` (per-venture token), `GET /venture/:venture/*` (the local preview of a published site).

@@ -1,6 +1,6 @@
 # The Director
 
-The first agent on every station. It cannot be deleted, its role cannot change, and it always wears the crown (you can restyle everything else).
+The first agent on every station. Since v0.4 a **CEO** sits above it and sets strategy (see [COMPANY.md](COMPANY.md)); the Director turns that direction into rooms, agents and tasks, and can propose a whole new world with `create_world {name, kind, goal?, targetCents?, capitalCents?, riskCents?}`, which waits for your approval like every structural change. It cannot be deleted, its role cannot change, and it always wears the crown (you can restyle everything else).
 
 **Powers:** `station.edit` (create/edit agents, rooms, desks, hallways, connectors) and `venture.create`. No other role can hold these, even from a Bridge desk.
 **Limits:** it proposes; it does not change policy, budgets or keys. Those are human-only. It can assign work to agents, tune their settings and message linked worlds without approval; creating or removing things waits for you.

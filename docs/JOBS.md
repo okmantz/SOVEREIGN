@@ -27,4 +27,6 @@ Director, Market Researcher, Data Analyst, Lead Generator, Email Outreach, Sales
 Results are filed in the Outbox. If a task is set to deliver to a connector (for example an email), the agent is told the connector's JSON contract and the action goes through the normal approval.
 
 ## Director actions
+There are now 25 roles. The six added in v0.4 (CEO, CFO, Product Manager, DevOps, Account Manager, SEO Specialist) have task libraries here, and every role has a full playbook (reports to, owns, never, escalates, tools, done) in `sidecar/lib/company/playbooks.js`.
+
 `assign_task`, `update_agent` (settings and persona), `message_world` run **immediately**. `create_*` and `remove_agent` change the station and wait for approval.
