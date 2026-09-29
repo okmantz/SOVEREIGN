@@ -18,6 +18,9 @@ const MAX_FILE = 2 * 1024 * 1024;
  */
 function makeSandbox(ctx) {
   const root = path.join(ctx.dataDir, 'workspaces');
+  let dockerOk = null; // cached: is Docker installed and running?
+  const hasDocker = () => { if (dockerOk === null) { try { dockerOk = require('node:child_process').spawnSync('docker', ['info'], { timeout: 4000, stdio: 'ignore' }).status === 0; } catch { dockerOk = false; } } return dockerOk; };
+  const resolveMode = (m) => m === 'auto' ? (hasDocker() ? 'docker' : 'process') : m;
 
   function base(id) { if (!ID_RE.test(id || '')) throw new Error('invalid venture id'); return path.join(root, id); }
   function ensure(id) { const b = base(id); for (const d of DIRS) fs.mkdirSync(path.join(b, d), { recursive: true }); return b; }
@@ -68,7 +71,7 @@ function makeSandbox(ctx) {
   }
 
   async function run(id, cmd, args = [], opts = {}) {
-    const s = ctx.settings().sandbox; const b = ensure(id);
+    const s = { ...ctx.settings().sandbox }; s.mode = resolveMode(s.mode); const b = ensure(id);
     if (!ALLOWED_CMDS.has(cmd)) throw new Error(`command not allowed: ${cmd}`);
     const cwd = safe(id, opts.cwd || 'source');
     checkArgs(id, cwd, args);

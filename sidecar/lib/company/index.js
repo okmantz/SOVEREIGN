@@ -29,10 +29,11 @@ const { makeRecipes } = require('./recipes');
  * createCompany({ dataDir, llm, now }) → the whole company layer.
  *   llm: optional async (prompt, {json}) => string. Wire it to your existing provider (see docs/COMPANY.md).
  */
-function createCompany({ dataDir, llm = null, now = () => Date.now() } = {}) {
+function createCompany({ dataDir, llm = null, getLlm = null, now = () => Date.now() } = {}) {
   if (!dataDir) throw new Error('dataDir is required');
   const dir = path.join(dataDir, 'company');
-  const ctx = { dataDir: dir, db: new Db(dir), now, llm, assets };
+  const ctx = { dataDir: dir, db: new Db(dir), now, assets };
+  Object.defineProperty(ctx, 'llm', { enumerable: true, get: () => (getLlm ? getLlm() : llm) }); // resolved on every use: an offline model means null, and every module then falls back to its built-in logic
   const listeners = [];
   ctx.on = (re, fn) => listeners.push({ re, fn });
   ctx.emit = (type, data = {}, venture_id = null) => {
@@ -55,7 +56,7 @@ function createCompany({ dataDir, llm = null, now = () => Date.now() } = {}) {
   ctx.on(/^payment\.failed$/, (e) => e.venture_id && ctx.directives.add({ venture_id: e.venture_id, role: 'Support', task: 'Recover failed payment', description: `Customer ${e.data.customer}`, priority: 'high' }));
 
   const api = {
-    ...ctx,
+    ...ctx, llm: undefined,
     /** Set total capital and the hard portfolio loss limit ("the most you will lose"). */
     setCapital: (total, maxLoss) => ctx.cfo.setCapital(total, maxLoss),
     async resolveApproval(id, approve, note) { const a = ctx.permissions.resolve(id, approve, note); return { approval: a, outcome: await ctx.ceo.onApproval(a) }; },
@@ -110,7 +111,7 @@ function registerBuiltinTools(ctx) {
     input_schema: S({ required: ['queries'], props: { queries: { type: 'array', items: { type: 'string' } } } }), handler: (i) => ctx.opportunities.scan({ queries: i.queries.slice(0, 5) }) });
   // publishing / money
   T.register({ name: 'deploy.ship', owner: 'builtin', description: 'Test, deploy and verify the venture workspace (public)', required_permission: 2, risk: 'medium',
-    input_schema: S({ props: { target: { type: 'string', enum: ['local', 'vercel', 'docker', 'cloudflare', 'netlify', 'fly', 'railway'] }, scaffold: { type: 'object' }, build_spec: { type: 'string' }, expect: { type: 'string' } } }),
+    input_schema: S({ props: { target: { type: 'string', enum: ['local', 'bundle', 'vercel', 'docker', 'cloudflare', 'netlify', 'fly', 'railway'] }, scaffold: { type: 'object' }, build_spec: { type: 'string' }, expect: { type: 'string' } } }),
     handler: (i, { venture_id }) => ctx.deploy.ship({ venture_id, ...i }) });
   T.register({ name: 'image.generate', owner: 'builtin', description: 'Generate a raster image via an OpenAI-compatible API (costs money)', required_permission: 3, risk: 'medium', cost: 0.05, spend_category: 'ai_inference',
     input_schema: S({ required: ['prompt'], props: { prompt: { type: 'string', maxLength: 2000 }, name: { type: 'string' } } }),

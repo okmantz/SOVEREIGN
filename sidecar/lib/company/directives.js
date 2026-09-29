@@ -6,6 +6,8 @@ function makeDirectives(ctx) {
   function add(d) {
     if (!ctx.ventures.canWork(d.venture_id)) return null;                       // never queue work for dead ventures
     const dup = D().find((x) => x.venture_id === d.venture_id && x.task === d.task && x.status === 'open'); if (dup) return dup;
+    const recent = D().find((x) => x.venture_id === d.venture_id && x.task === d.task && ['assigned', 'done'].includes(x.status) && ctx.now() - (x.assigned || x.created) < 24 * 3600000);
+    if (recent) return recent;                                                    // cooldown: the same instruction is not re-issued every tick
     const x = { id: uid('dir'), status: 'open', priority: 'normal', created: ctx.now(), ...d }; D().push(x); ctx.db.save('directives'); return x;
   }
   const list = (f = {}) => D().filter((d) => (!f.venture_id || d.venture_id === f.venture_id) && (!f.status || d.status === f.status));

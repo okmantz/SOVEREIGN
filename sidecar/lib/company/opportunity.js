@@ -26,6 +26,21 @@ const scanners = {
     const j = await getJson(`https://api.github.com/search/repositories?sort=stars&per_page=20&q=${encodeURIComponent(query)}`, { accept: 'application/vnd.github+json' });
     return j.items.map((r) => ({ source: 'github', title: r.full_name, url: r.html_url, engagement: r.stargazers_count, text: r.description || r.full_name }));
   },
+  // Stack Exchange: what developers and owners are stuck on (free, keyless, rate limited)
+  stackoverflow: async ({ query }) => {
+    const j = await getJson(`https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=votes&pagesize=20&site=stackoverflow&q=${encodeURIComponent(query)}`);
+    return (j.items || []).map((x) => ({ source: 'stackoverflow', title: x.title, url: x.link, engagement: (x.score || 0) + 3 * (x.answer_count || 0) + Math.round((x.view_count || 0) / 200), text: x.title }));
+  },
+  // npm registry: what already exists in a developer niche (competition signal)
+  npm: async ({ query }) => {
+    const j = await getJson(`https://registry.npmjs.org/-/v1/search?size=20&text=${encodeURIComponent(query)}`);
+    return (j.objects || []).map((o) => ({ source: 'npm', title: o.package.name, url: (o.package.links || {}).npm || `https://www.npmjs.com/package/${o.package.name}`, engagement: Math.round(((o.score || {}).final || 0) * 100), text: `${o.package.name} ${o.package.description || ''}` }));
+  },
+  // App Store search: existing apps and how many ratings they have (demand and competition), free and keyless
+  appstore: async ({ query }) => {
+    const j = await getJson(`https://itunes.apple.com/search?entity=software&limit=20&term=${encodeURIComponent(query)}`);
+    return (j.results || []).map((a) => ({ source: 'appstore', title: a.trackName, url: a.trackViewUrl, engagement: Math.round((a.userRatingCount || 0) / 20), text: `${a.trackName} ${String(a.description || '').slice(0, 400)}` }));
+  },
 };
 
 function makeOpportunities(ctx) {

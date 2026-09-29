@@ -41,7 +41,14 @@ function makeDeploy(ctx) {
       fs.rmSync(dest, { recursive: true, force: true }); fs.mkdirSync(dest, { recursive: true });
       let n = 0; for (const f of walk(src)) { const rel = path.relative(src, f); fs.mkdirSync(path.dirname(path.join(dest, rel)), { recursive: true }); fs.copyFileSync(f, path.join(dest, rel)); n++; }
       if (!fs.existsSync(path.join(dest, 'index.html'))) throw new Error('local deploy needs an index.html');
-      return { url: `http://127.0.0.1:${ctx.settings().port}/sites/${o.venture_id}/`, files: n, target: 'local' };
+      return { url: `http://127.0.0.1:${ctx.settings().port}/venture/${o.venture_id}/`, files: n, target: 'local' };
+    },
+    /** Zero-credential, zero-cost: a ready-to-drop ZIP of the site. Drag it onto Netlify Drop, Cloudflare Pages (direct upload) or GitHub Pages. */
+    async bundle(o) {
+      const src = ctx.sandbox.dir(o.venture_id, o.dir || 'source'); const files = walk(src).map((f) => ({ name: path.relative(src, f).split(path.sep).join('/'), data: fs.readFileSync(f) }));
+      if (!files.some((f) => f.name === 'index.html')) throw new Error('export needs an index.html');
+      const out = path.join(ctx.sandbox.dir(o.venture_id, 'artifacts'), 'site.zip'); fs.writeFileSync(out, require('./zip').zip(files));
+      return { url: null, file: 'artifacts/site.zip', files: files.length, target: 'bundle', how_to_publish: 'Drop artifacts/site.zip on app.netlify.com/drop, or use Cloudflare Pages direct upload, or unzip into a GitHub repo and enable Pages. All are free.' };
     },
     /** Vercel REST API: inline-file deployment of a static site. Needs secret `vercel_token`. */
     async vercel(o) {
@@ -91,13 +98,14 @@ function makeDeploy(ctx) {
     return { ok: false, ...last, attempts: retries };
   }
 
-  /** Deploy (target: local|vercel|docker|cloudflare|netlify|fly|railway) then verify and start monitoring. */
+  /** Deploy (target: local|bundle|vercel|docker|cloudflare|netlify|fly|railway) then verify and start monitoring. */
   async function deploy(o) {
     const target = o.target || 'local';
     const fn = CLI[target] ? (x) => deployers.cli({ ...x, provider: target }) : deployers[target];
     if (!fn) throw new Error(`unknown deploy target ${target}`);
     const name = (o.name || o.venture_id).toLowerCase().replace(/[^a-z0-9-]+/g, '-').slice(0, 40);
     const d = await fn({ ...o, name });
+    if (!d.url && d.file) return { ...d, verified: null, exported: true }; // a ZIP export is not a hosted site: nothing to verify or monitor
     const v = d.url ? await verify(d.url, { contains: o.expect, retries: o.retries || 5 }) : { ok: false, error: 'no url returned' };
     ctx.ventures.update(o.venture_id, { deployed_url: d.url });
     if (v.ok) addMonitor(o.venture_id, d.url, { contains: o.expect });
@@ -138,7 +146,7 @@ function makeDeploy(ctx) {
       if (!t.ok) return { ok: false, steps, error: 'tests failed', output: (t.stdout + t.stderr).slice(-800) };
     }
     const d = await deploy({ venture_id, target, expect, dir: 'source' }); steps.push({ step: 'deploy', target, url: d.url, verified: d.verified });
-    return { ok: d.verified, steps, url: d.url };
+    return { ok: d.verified !== false, steps, url: d.url, ...(d.file ? { file: d.file, how_to_publish: d.how_to_publish } : {}) };
   }
   return { deploy, verify, ship, addMonitor, checkMonitors, deployers, monitors: () => Object.values(monitors()) };
 }

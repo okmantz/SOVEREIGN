@@ -34,6 +34,7 @@ function makeTools(ctx) {
     const cost = round(overrides.cost ?? (typeof t.cost === 'function' ? t.cost(input) : t.cost || 0));
     const level = overrides.level ?? t.required_permission;
     const irreversible = overrides.irreversible ?? t.irreversible;
+    if (cost > 0 && !ctx.settings().allow_paid) return { status: 'denied', reason: 'free-only mode: this action costs money. Turn on "allow paid" in the company settings if you want it.' };
     if (cost > 0) {                                     // money law: CFO always has a vote, even for approved actions
       if (!venture_id) return { status: 'denied', reason: 'spending tools need a venture_id' };
       const c = ctx.cfo.decide({ venture_id, amount: cost, category: t.spend_category || 'other_opex', purpose: name });

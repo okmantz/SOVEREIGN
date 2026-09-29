@@ -8,7 +8,8 @@ const DEFAULTS = {
   cfo: { reserve_pct: 0.15, experiments_pct: 0.10, min_runway_days: 14, tax_reserve_rate: 0.2 },
   ventures: { max_active: 3, validation_budget: 100, max_validation_iterations: 2, min_opportunity_score: 60 },
   kill: { max_loss_pct: 1.0, max_days_no_revenue: 45, validation_budget_burn_kill: 0.7 },
-  sandbox: { mode: 'docker', image: 'node:20-slim', timeout_ms: 120000, memory_mb: 512,
+  allow_paid: false,                     // FREE-ONLY by default: any action that costs money is refused until the owner turns this on
+  sandbox: { mode: 'auto', image: 'node:20-slim', timeout_ms: 120000, memory_mb: 512,
     virtual_memory_mb: 4096, cpu_seconds: 60, cpus: 1, output_cap: 200000, allow_network: false },
   browser: { allowed_domains: [], blocked_domains: [], allow_private: false },
   autopilot: { enabled: false },

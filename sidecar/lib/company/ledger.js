@@ -12,7 +12,7 @@ const CATEGORIES = {
 };
 /** Law 1: only these sources can make an entry "verified". Agent claims are stored but never counted. */
 const TRUSTED = new Set(['stripe', 'webhook', 'shopify', 'etsy', 'gumroad', 'woocommerce', 'meta_ads',
-  'bank', 'measured', 'manual_confirmed', 'harness']);
+  'bank', 'measured', 'harness']);
 
 function makeLedger(ctx) {
   const rows = () => ctx.db.get('ledger', []);

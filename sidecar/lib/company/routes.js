@@ -22,7 +22,7 @@ function body(req, limit = 100000) {
 async function handle(co, req, res) {
   const url = new URL(req.url, 'http://x'); const p = url.pathname;
   const json = (code, obj, extra = {}) => { res.writeHead(code, { 'content-type': 'application/json', ...extra }); res.end(JSON.stringify(obj)); return true; };
-  if (!(p.startsWith('/api/company') || p.startsWith('/hooks/') || p.startsWith('/sites/'))) return false;
+  if (!(p.startsWith('/api/company') || p.startsWith('/hooks/') || p.startsWith('/venture/'))) return false;
   const ip = req.socket.remoteAddress || '?';
   try {
     // ---- public, self-authenticating ----
@@ -38,7 +38,7 @@ async function handle(co, req, res) {
       let b = {}; try { b = JSON.parse(await body(req, 4096) || '{}'); } catch { return json(400, { ok: false }, cors); }
       const r = m[1] === 'lead' ? co.ingestLead(m[2], m[3], b) : co.ingestEvent(m[2], m[3], b); return json(r.status, { ok: r.ok }, cors);
     }
-    m = p.match(/^\/sites\/([\w-]+)\/(.*)$/);
+    m = p.match(/^\/venture\/([\w-]+)\/(.*)$/);
     if (m && req.method === 'GET') {
       const root = path.join(co.dataDir, 'sites', m[1]); const f = path.resolve(root, m[2] || 'index.html');
       const target = fs.existsSync(f) && fs.statSync(f).isDirectory() ? path.join(f, 'index.html') : f;
@@ -75,7 +75,7 @@ async function handle(co, req, res) {
       if ((m = p.match(/^\/api\/company\/opportunities\/([\w-]+)\/(research|models)$/))) return json(200, m[2] === 'research' ? await co.opportunities.research(m[1], await readJson()) : co.opportunities.generateModels(m[1]));
       if (p === '/api/company/agents/grant') { const b = await readJson(); co.permissions.grant(String(b.agent_id), Number(b.level)); return json(200, { tier: co.permissions.tier(b.agent_id) }); }
       if (p === '/api/company/ledger') { // human-confirmed money only; agent claims are stored as unverified
-        const b = await readJson(); const e = co.ledger.record({ ...b, source: b.confirmed ? 'manual_confirmed' : 'agent_claim' }); return json(200, e);
+        const b = await readJson(); const e = co.ledger.record({ ...b, source: 'agent_claim' }); return json(200, e); // never verified from here: verified money arrives by signed webhook or connector sync
       }
     }
     return json(404, { error: 'unknown company route' });
