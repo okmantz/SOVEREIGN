@@ -1,7 +1,7 @@
 'use strict';
 const { DAY } = require('./util');
 
-const EVERY = { five_min: 5 * 60000, hourly: 3600000, nightly: DAY, weekly: 7 * DAY };
+const EVERY = { minute: 60000, five_min: 5 * 60000, hourly: 3600000, nightly: DAY, weekly: 7 * DAY };
 
 /**
  * SOVEREIGN AUTOPILOT. Law 8: it stops instead of burning money — repeated failures or a breached loss limit pause it
@@ -12,11 +12,17 @@ function makeAutopilot(ctx) {
   let timer = null;
 
   const jobs = {
+    /** Every minute: due sequence steps become drafts, approved mail goes out (within the daily limit and send window), retainer cycles are scheduled and produced. */
+    async minute() { const r = await ctx.lifecycle.tick(); try { r.remote = await ctx.remote.pump(); } catch { /* push must never stop the loop */ } return r; },
     async five_min() {
       const mon = await ctx.deploy.checkMonitors();
       const recentFails = ctx.db.get('events', []).filter((e) => e.type === 'tool.failed' && e.ts > ctx.now() - 5 * 60000).length;
       if (recentFails >= 5) ctx.emit('alert', { msg: `${recentFails} tool failures in 5 minutes` });
-      return { monitors: mon.length, tool_failures: recentFails };
+      const out = { monitors: mon.length, tool_failures: recentFails };
+      // subscription events without a public webhook: renewals, cancellations, failed payments (needs the Stripe key; a no-op without it)
+      if (ctx.settings().stripe.poll_events) { try { out.stripe = await ctx.payments.pollEvents(); } catch (e) { out.stripe = { error: e.message }; ctx.emit('alert', { msg: `Stripe event poll failed: ${e.message}` }); } }
+      if (ctx.tunnel) out.tunnel = await ctx.tunnel.ensure();
+      return out;
     },
     async hourly() {
       let follow = 0, risks = 0;
@@ -26,15 +32,17 @@ function makeAutopilot(ctx) {
         if (stale.length) { ctx.directives.add({ venture_id: v.venture_id, role: 'Sales', task: 'Follow up stale prospects', description: `${stale.length} prospects untouched 3+ days` }); follow++; }
       }
       const changed = await ctx.browser.watchCompetitors();
-      return { retention_risks: risks, follow_ups: follow, competitor_changes: changed.length };
+      const lifecycle = await ctx.lifecycle.scan(); // churn-save, testimonial ask, upsell offers
+      return { retention_risks: risks, follow_ups: follow, competitor_changes: changed.length, lifecycle };
     },
     async nightly() {
       const ceo = ctx.ceo.tick();
+      const digest = ctx.lifecycle.notifyDigest(); for (const v of ctx.ventures.list({ activeOnly: true })) { try { ctx.pages.refreshStatus(v.venture_id); } catch { /* no workspace yet */ } }
       for (const v of ctx.ventures.list({ activeOnly: true })) ctx.memory.learn(v.venture_id);
       const plan = ctx.cfo.plan(); const applied = ctx.cfo.applyPlan(plan);
       const priorities = ctx.directives.list({ status: 'open' }).sort((a, b) => (b.priority === 'high') - (a.priority === 'high')).slice(0, 10).map((d) => `${d.role}: ${d.task}`);
       ctx.db.set('priorities', { ts: ctx.now(), priorities });
-      return { killed: ceo.killed.length, decisions: ceo.decisions.length, recommended: ceo.recommended.length, rebalanced: applied.applied.length, capital_requests: applied.queued.length, priorities: priorities.length };
+      return { digest, killed: ceo.killed.length, decisions: ceo.decisions.length, recommended: ceo.recommended.length, rebalanced: applied.applied.length, capital_requests: applied.queued.length, priorities: priorities.length };
     },
     async weekly() {
       const s = ctx.settings(); const queries = (s.autopilot.scan_queries || []); let scan = null;
@@ -56,6 +64,7 @@ function makeAutopilot(ctx) {
       const r = await jobs[name](); s.last[name] = ctx.now(); s.failures = 0;
       s.log = [...s.log.slice(-49), { job: name, ts: t0, ok: true, result: r }]; ctx.db.save('autopilot'); return { ok: true, result: r };
     } catch (e) {
+      try { ctx.trail.log('job.failed', { job: name, error: e.message }); } catch { /* receipt is best effort */ }
       s.last[name] = ctx.now(); s.failures++; s.log = [...s.log.slice(-49), { job: name, ts: t0, ok: false, error: e.message }]; ctx.db.save('autopilot');
       if (s.failures >= 3) pause(`${s.failures} consecutive job failures (last: ${name}: ${e.message})`);
       return { ok: false, error: e.message };

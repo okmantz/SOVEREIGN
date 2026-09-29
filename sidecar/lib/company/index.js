@@ -24,6 +24,13 @@ const { makeDirectives } = require('./directives');
 const { makeCeo } = require('./ceo');
 const { makeAutopilot } = require('./autopilot');
 const { makeRecipes } = require('./recipes');
+const { makeMail } = require('./mail');
+const { makeLifecycle } = require('./lifecycle');
+const { makeRetainer } = require('./retainer');
+const { makePages } = require('./pages');
+const { makeTunnel } = require('./tunnel');
+const { makeTrail } = require('./trail');
+const { makeRemote } = require('./remote');
 
 /**
  * createCompany({ dataDir, llm, now }) → the whole company layer.
@@ -47,7 +54,19 @@ function createCompany({ dataDir, llm = null, getLlm = null, now = () => Date.no
   ctx.crm = makeCrm(ctx); ctx.memory = makeMemory(ctx); ctx.validation = makeValidation(ctx); ctx.cfo = makeCfo(ctx);
   ctx.opportunities = makeOpportunities(ctx); ctx.analytics = makeAnalytics(ctx); ctx.tools = makeTools(ctx);
   ctx.sandbox = makeSandbox(ctx); ctx.builder = makeBuilder(ctx); ctx.deploy = makeDeploy(ctx); ctx.browser = makeBrowser(ctx);
+  ctx.trail = makeTrail(ctx);  // the append-only, hash-chained receipt (see trail.js)
+  ctx.approvalHandlers = {};   // approval type → async (approval) => outcome; called for approved AND rejected (see ceo.onApproval)
+  ctx.publicUrl = () => (ctx.tunnel && ctx.tunnel.url && ctx.tunnel.url()) || ctx.settings().tunnel.public_url || ctx.settings().pages.public_url || '';
   ctx.directives = makeDirectives(ctx); ctx.payments = makePayments(ctx); ctx.ceo = makeCeo(ctx); ctx.autopilot = makeAutopilot(ctx); ctx.recipes = makeRecipes(ctx);
+  // recurring revenue: mail queue → retainer delivery → timed sequences → hosted pages
+  ctx.mail = makeMail(ctx); ctx.retainer = makeRetainer(ctx); ctx.lifecycle = makeLifecycle(ctx); ctx.pages = makePages(ctx); ctx.remote = makeRemote(ctx);
+  ctx.approvalHandlers.delivery = async (a) => (a.status === 'approved' ? ctx.retainer.onApproved(a.payload.cycle_id) : ctx.retainer.onRejected(a.payload.cycle_id, a.note));
+  ctx.approvalHandlers.pause = async (a) => {
+    if (a.status !== 'approved') return { rejected: true };
+    const c = ctx.crm.customers(a.venture_id).find((x) => x.id === a.payload.customer_id); const r = await ctx.payments.pauseSubscription(c, { days: a.payload.days || 30 });
+    for (const m of ctx.mail.list({ status: 'draft', venture_id: a.venture_id })) if (c && m.to === c.email && (m.flags || []).includes('send_after_pause_approved')) { m.flags = m.flags.filter((f) => f !== 'send_after_pause_approved'); ctx.db.save('mail'); }
+    return r;
+  };
 
   registerBuiltinTools(ctx);
   // event-triggered autonomy
@@ -79,8 +98,25 @@ function createCompany({ dataDir, llm = null, getLlm = null, now = () => Date.no
       if (body.type === 'view' && ctx.validation.get(venture_id)) ctx.validation.record(venture_id, { visitors: 1 });
       ctx.emit(`site.${String(body.type || 'event').replace(/\W/g, '').slice(0, 30)}`, {}, venture_id); return { ok: true, status: 200 };
     },
-    async close() { ctx.autopilot.stop(); ctx.tools.closeAll(); },
+    /** Inbound e-mail entry (POST /hooks/reply/<venture>/<token>): classify, stop sequences, draft the fast reply. */
+    async handleReply(venture_id, token, body) {
+      const v = ctx.ventures.get(venture_id); if (!v || !v.active || !safeEq(v.lead_token, token)) return { ok: false, status: 404 };
+      const d = (body && body.data && typeof body.data === 'object') ? body.data : body || {}; // accepts a flat {from,subject,text} or a Resend-style {data:{...}}
+      const from = Array.isArray(d.from) ? d.from[0] : (d.from && d.from.email) || d.from; const r = await ctx.lifecycle.handleInbound({ venture_id, from: String(from || ''), subject: String(d.subject || '').slice(0, 300), text: String(d.text || d.body || '').slice(0, 20000) });
+      return { status: r.ok ? 200 : 400, ...r };
+    },
+    /** One-click unsubscribe (GET or POST /hooks/unsub/<venture>/<hmac>/<b64 email>). */
+    unsubscribe(venture_id, token, encoded) { const e = ctx.mail.verifyUnsub(venture_id, token, encoded); if (!e) return { ok: false, status: 404 }; ctx.mail.unsubscribe(e, 'link'); ctx.lifecycle.stopForEmail(e, 'unsubscribed'); return { ok: true, status: 200 }; },
+    publicStatus: (venture_id) => ctx.pages.publicStatus(venture_id),
+    /** POST /hooks/discord: the signature is checked on the RAW body before anything is parsed. */
+    async handleDiscordInteraction(raw, sig, ts) {
+      if (!ctx.remote.verifyDiscord(raw, sig, ts)) return { status: 401 };
+      let i; try { i = JSON.parse(raw); } catch { return { status: 400 }; } return { status: 200, body: await ctx.remote.handleDiscord(i) };
+    },
+    async close() { ctx.autopilot.stop(); ctx.remote.close(); ctx.tools.closeAll(); if (ctx.tunnel) await ctx.tunnel.close(); },
   };
+  ctx.resolveApproval = (id, approve, note) => api.resolveApproval(id, approve, note);   // lets the daily digest approve company approvals in one batch
+  api.tunnel = ctx.tunnel = makeTunnel(ctx, api);
   return api;
 }
 function makeSettingsBundle(ctx) { const s = makeSettings(ctx); return { settings: s.get, setSettings: s.set }; }

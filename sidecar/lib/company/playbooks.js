@@ -106,7 +106,7 @@ const P = {
     procedure: ['One clear ask per email, under 120 words', 'Personalise from public information', 'Always include the opt-out line', 'Log each send and reply with crm.prospect.update'],
     never: ['Exceed the daily send limit', 'Make a claim you cannot prove', 'Email someone who opted out'],
     escalate: ['Every send waits for approval unless the owner has allowed auto-send'],
-    tools: ['crm.prospect.update', 'memory.note'],
+    tools: ['crm.prospect.update', 'mail.draft', 'memory.note'],
     done: ['Drafts are ready with subject, body and opt-out', 'Sent and replied status is in the CRM']
   },
   sales_closer: {
@@ -119,7 +119,7 @@ const P = {
     procedure: ['Acknowledge their point', 'Answer plainly', 'Propose exactly one next step', 'Create a payment link with stripe.checkout once they agree', 'Update the prospect with crm.prospect.update'],
     never: ['Promise what delivery cannot do', 'Discount without the owner\'s rule allowing it', 'Take payment outside the payment link'],
     escalate: ['Custom pricing, contracts, legal terms and refunds go to the owner'],
-    tools: ['crm.prospect.update', 'stripe.checkout', 'memory.note'],
+    tools: ['crm.prospect.update', 'stripe.checkout', 'mail.draft', 'memory.note'],
     done: ['A next step is agreed and dated', 'The CRM shows the real status']
   },
   copywriter: {
@@ -262,7 +262,7 @@ const P = {
     procedure: ['Solve first, apologise briefly', 'Open a ticket with crm.ticket.open when it needs follow-up', 'Add repeat questions to the FAQ'],
     never: ['Promise a refund or fix you cannot deliver', 'Share another customer\'s data'],
     escalate: ['Refunds beyond policy, legal threats, safety issues'],
-    tools: ['crm.ticket.open', 'memory.note'],
+    tools: ['crm.ticket.open', 'mail.draft', 'memory.note'],
     done: ['A reply the customer can act on, and a ticket if needed']
   },
   account_manager: {
@@ -275,7 +275,7 @@ const P = {
     procedure: ['Give every customer a next contact date', 'Check in on schedule with one useful question', 'Act on the retention-risk list first', 'Ask for a renewal or referral after a real result'],
     never: ['Send template blasts', 'Overpromise', 'Ignore a failed payment or an inactive customer'],
     escalate: ['Complaints, refunds and cancellations go to the owner'],
-    tools: ['crm.prospect.update', 'crm.ticket.open', 'memory.note'],
+    tools: ['crm.prospect.update', 'crm.ticket.open', 'mail.draft', 'memory.note'],
     done: ['Each at-risk customer has a specific, dated action']
   },
   ops: {

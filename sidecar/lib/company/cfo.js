@@ -30,6 +30,7 @@ function makeCfo(ctx) {
     const snap = snapshot(venture_id);
     const out = (decision, reason) => ({ decision, reason, purpose, category, amount, snapshot: snap });
     if (amount === 0) return out('AUTHORIZED', 'no spend');
+    if (category === 'marketing' && v.strategy && v.strategy.ads_frozen && v.status !== 'VALIDATION') return out('DENIED', 'ad spend is frozen: LTV/CAC is below the guardrail floor');
     if (amount > snap.cash) return out('DENIED', `insufficient cash ($${snap.cash} available)`);
     const floor = v.capital_allocated * cfg.reserve_pct;
     if (v.capital_allocated > 0 && snap.cash - amount < floor && snap.profit <= 0) {

@@ -282,7 +282,7 @@ function createServer(root) {
     // Block drive-by requests from other websites to this local, money-spending server.
     const origin = req.headers.origin;
     if (origin && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) && !url.pathname.startsWith('/api/ingest/') && !url.pathname.startsWith('/hooks/') && !((url.pathname.startsWith('/sites/') || url.pathname.startsWith('/venture/')) && (req.method === 'GET' || req.method === 'HEAD'))) { res.writeHead(403); return res.end('Forbidden origin'); }
-    if (url.pathname.startsWith('/api/company') || url.pathname.startsWith('/hooks/') || url.pathname.startsWith('/venture/')) { if (await companyRoutes.handle(bridge.companyFor(root), req, res)) return; }
+    if (url.pathname.startsWith('/api/company') || url.pathname.startsWith('/hooks/') || url.pathname.startsWith('/venture/') || url.pathname.startsWith('/remote/')) { if (await companyRoutes.handle(bridge.companyFor(root), req, res)) return; }
     if (url.pathname.startsWith('/oauth/')) return handleOAuth(root, req, res, url);
     if (url.pathname.startsWith('/sites/')) return serveSite(root, req, res, url);
     if (!url.pathname.startsWith('/api/')) return serveStatic(req, res);

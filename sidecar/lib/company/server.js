@@ -15,7 +15,7 @@ const dataDir = process.env.SOVEREIGN_DATA || path.join(process.cwd(), 'data');
 const company = createCompany({ dataDir });
 company.setSettings({ port: PORT });
 const FRONT = path.join(__dirname, '..', '..', '..', 'frontend');
-const PUBLIC = /^\/(hooks\/|sites\/)/;
+const PUBLIC = /^\/(hooks\/|sites\/|remote\/)/;
 
 const server = http.createServer(async (req, res) => {
   const host = (req.headers.host || '').split(':')[0]; const origin = req.headers.origin;

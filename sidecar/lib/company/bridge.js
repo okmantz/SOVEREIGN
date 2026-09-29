@@ -54,7 +54,7 @@ function companyFor(any) {
     const dataDir = root.persist === false ? fs.mkdtempSync(path.join(os.tmpdir(), 'sov-co-')) : HOME;
     const co = createCompany({ dataDir, getLlm: () => llmFor(root) });
     h = { co, root, port: null, lastCeo: 0, lastTick: 0 }; REG.set(root, h);
-    wire(h); require('./agent_tools').register(co, root);
+    wire(h); require('./agent_tools').register(co, root); co.remote.setProvider(makeRemoteProvider(root));
   }
   applySettings(h); return h.co;
 }
@@ -148,6 +148,7 @@ lazy('../guardrails').registerExecutor('company.approval', async (store, payload
 /** Company approvals the owner rejected in Sovereign are rejected in the company too. */
 function reconcileApprovals(store) {
   const co = companyFor(store);
+  for (const a of store.state.approvals) if (a.kind === 'company.approval' && a.status === 'pending' && a.payload) { const c = co.permissions.getApproval(a.payload.approval_id); if (c && c.status !== 'pending') { a.status = c.status; a.resolvedAt = c.resolved || Date.now(); store.change('approval', { id: a.id }); } } // resolved in the digest or from a phone: close the mirror
   for (const a of store.state.approvals) if (a.kind === 'company.approval' && a.status === 'rejected' && a.payload) { const c = co.permissions.getApproval(a.payload.approval_id); if (c && c.status === 'pending') co.permissions.resolve(c.id, false, 'rejected in Sovereign'); }
 }
 
@@ -218,6 +219,9 @@ function briefing(store) {
     val ? `Validation test: needs ${JSON.stringify(val.thresholds)}; so far ${JSON.stringify(val.metrics || {})}; verdict ${val.decision} (${val.reason}).` : 'No validation test running yet.',
     `Kill conditions: loss over $${(v.kill_conditions || {}).max_loss ?? 'n/a'}, or no revenue ${(v.kill_conditions || {}).max_days_no_revenue ?? 45} days after launch.`,
     `Should we spend more: ${a.increase_spending}. Next action: ${v.next_action ? v.next_action.task : 'not set'}.`];
+  try { // recurring-revenue guardrail: agents must never propose scaling that the numbers forbid
+    const g = co.ceo.cashflow(v.venture_id); lines.push(`Cash-flow guardrail: MRR $${g.mrr} vs monthly cost $${g.monthly_cost}${g.mrr_cover === null ? '' : ` (${g.mrr_cover}x)`}, LTV/CAC ${g.ltv_cac === null ? 'not measurable yet' : g.ltv_cac}. Ads ${g.ads_frozen ? 'FROZEN: do not propose paid traffic' : 'allowed'}; scaling ${g.scale_ok ? 'allowed' : 'BLOCKED'}.`);
+  } catch (_) { /* briefing must never fail */ }
   const lessons = co.memory.lessons(v.venture_id).slice(0, 3); if (lessons.length) lines.push('Learned so far: ' + lessons.join(' '));
   const recent = co.memory.recall(v.venture_id, null, '').slice(0, 3).map((m) => `[${m.kind}] ${m.summary}`); if (recent.length) lines.push('Business memory: ' + recent.join(' | '));
   return lines.join('\n').slice(0, 2400);
@@ -242,6 +246,67 @@ async function runAgentTools(store, agent, text) {
   return { text: `${stripped}\n\nTool results:\n${out.join('\n')}`, calls };
 }
 
+
+// ---- REMOTE CONTROL PROVIDER: what the phone sees and does. Read-mostly; every write goes through the same code as the desktop UI.
+const world_stores = (root) => Object.values(root.data.worlds).map((w) => root.forWorld(w.id));
+function makeRemoteProvider(root) {
+  const co = () => companyFor(root);
+  const clip = (t, n) => (String(t).length > n ? String(t).slice(0, n - 1) + '…' : String(t));
+  return {
+    /** Every pending station approval in every world. Company approvals are mirrored here, so this is the one list. */
+    approvals() {
+      const out = [];
+      for (const st of world_stores(root)) {
+        const w = st.state;
+        for (const a of w.approvals) {
+          if (a.status !== 'pending') continue;
+          const meta = {};
+          if (a.kind === 'connector.call' && a.payload) { const c = w.connectors[a.payload.connectorId]; meta.connector_kind = c ? (c.kind || c.source || c.type) : null; }
+          if (a.kind === 'director.plan' && a.payload) meta.actions = (a.payload.actions || []).map((x) => `${x.type}${x.name ? ' ' + x.name : ''}`);
+          if (a.kind === 'company.approval' && a.payload) { const ca = co().permissions.getApproval(a.payload.approval_id); if (!ca || ca.status !== 'pending') continue; meta.company = { ...ca, placeholder: ca.type === 'delivery' && /PLACEHOLDER/.test(ca.summary || '') }; }
+          out.push({ id: a.id, kind: a.kind, summary: a.summary, detail: a.detail || [], at: a.at, world: st.id || st.defaultId, meta });
+        }
+      }
+      return out;
+    },
+    async resolve(id, approve) {
+      const guardrails = lazy('../guardrails');
+      for (const st of world_stores(root)) if (st.state.approvals.some((a) => a.id === id)) return guardrails.resolveApproval(st, id, approve);
+      throw new Error('That request no longer exists.');
+    },
+    /** Who is doing what, per agent: live task, and the last thing each one produced (with whether it passed the quality checks). */
+    agents() {
+      const out = []; const activity = lazy('../activity');
+      for (const st of world_stores(root)) {
+        const w = st.state; const busy = new Map(activity.list(st).map((x) => [x.agentId, x]));
+        for (const a of Object.values(w.agents)) {
+          const b = busy.get(a.id); const last = w.outbox.find((o) => o.meta && o.meta.agentId === a.id && o.kind !== 'sop');
+          out.push({ world: w.name, name: a.name, role: (ROLES[a.role] && ROLES[a.role].label) || a.role || '', working: !!b, title: b ? b.title : '', since: b ? b.since : null,
+            last: last ? { title: clip(last.title, 80), at: last.at, passed: last.meta && last.meta.loop ? !!last.meta.loop.passed : null, preview: clip(String(last.content || ''), 420) } : null });
+        }
+      }
+      return out.sort((x, y) => (y.working - x.working) || String(x.name).localeCompare(String(y.name)));
+    },
+    /** Recent deliverables across worlds, for the console feed. */
+    feed() {
+      const out = [];
+      for (const st of world_stores(root)) for (const o of st.state.outbox.slice(0, 15)) if (o.kind !== 'sop') out.push({ ts: o.at, type: 'output', actor: o.fromRoom || 'agent', text: `${o.title}${o.meta && o.meta.loop && o.meta.loop.passed === false ? ' (failed checks)' : ''}` });
+      return out;
+    },
+    /** The kill switch for plans: pause every running roadmap. Returns how many were paused. */
+    stop(reason) {
+      let n = 0; const loop = lazy('../loop');
+      for (const st of world_stores(root)) { const rm = st.state.roadmap; if (rm && rm.status === 'running' && !rm.paused) { rm.paused = true; rm.pauseKind = 'remote'; rm.pauseReason = `Stopped from your phone: ${reason}. Resume when you are ready.`; loop.stop(st.state, 'Stopped from your phone', 'remote'); st.change('state'); n++; } }
+      return n;
+    },
+    resume() {
+      let n = 0;
+      for (const st of world_stores(root)) { const rm = st.state.roadmap; if (rm && rm.paused && rm.pauseKind === 'remote') { rm.paused = false; rm.pauseKind = null; rm.pauseReason = null; st.state.loopStop = null; st.change('state'); n++; } }
+      return n;
+    },
+  };
+}
+
 // ---- one management pass; the server calls this every 20 seconds
 async function tick(root) {
   if (companySettings(root).enabled === false) return;
@@ -252,6 +317,7 @@ async function tick(root) {
   }
   if (now - h.lastCeo > 30 * 60000) { h.lastCeo = now; try { co.ceo.tick(); } catch (e) { console.error('[company] ceo', e.message); } } // the CEO reviews every 30 minutes, never on every beat
   try { await co.directives.drain((d) => assignDirective(root, d), { max: 2 }); } catch (_) { /* drain again next beat */ }
+  try { await co.remote.pump(); } catch (_) { /* push never blocks the beat */ }
   if (companySettings(root).autopilot) { try { await co.autopilot.tick(); } catch (_) { /* autopilot pauses itself on repeated failure */ } }
 }
 

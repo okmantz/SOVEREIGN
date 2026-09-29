@@ -26,7 +26,7 @@ function makeCrm(ctx) {
     p.status = status; if (!p.reached.includes(status)) p.reached.push(status);
     p.probability = PROB[status]; p.last_contact = ctx.now(); if (note) p.notes.push({ ts: ctx.now(), note });
     if (status === 'won') { p.customer = true; }
-    ctx.db.save('prospects'); ctx.emit(`crm.${status}`, { source: p.source }, p.venture_id); return p;
+    ctx.db.save('prospects'); ctx.emit(`crm.${status}`, { source: p.source, prospect_id: p.id }, p.venture_id); return p;
   }
   const prospects = (venture_id, status) => P().filter((p) => (!venture_id || p.venture_id === venture_id) && (!status || p.status === status));
 
@@ -61,10 +61,34 @@ function makeCrm(ctx) {
   }
 
   // ---- customers, support, retention ----
+  const tok = () => require('node:crypto').randomBytes(12).toString('hex');
+  const lc = (x) => String(x || '').trim().toLowerCase();
+  /** Find an existing customer by Stripe ids first, then by e-mail (same venture). */
+  function findCustomer(venture_id, { stripe_customer, stripe_subscription, email, id } = {}) {
+    const rows = C().filter((c) => !venture_id || c.venture_id === venture_id);
+    return rows.find((c) => id && c.id === id)
+      || rows.find((c) => stripe_subscription && c.stripe_subscription === stripe_subscription)
+      || rows.find((c) => stripe_customer && c.stripe_customer === stripe_customer)
+      || rows.find((c) => email && lc(c.email) === lc(email)) || null;
+  }
   function addCustomer(o) {
+    const existing = findCustomer(o.venture_id, { stripe_customer: o.stripe_customer, stripe_subscription: o.stripe_subscription, email: o.email });
+    if (existing) { // a repeat checkout, or a returning customer: never a second row for the same person
+      const patch = { stripe_customer: o.stripe_customer || existing.stripe_customer, stripe_subscription: o.stripe_subscription || existing.stripe_subscription };
+      if (existing.churned) { patch.churned = false; patch.churned_at = null; patch.since = ctx.now(); patch.mrr = o.mrr || 0; patch.plan = o.plan || existing.plan; ctx.emit('customer.reactivated', { customer_id: existing.id }, existing.venture_id); }
+      Object.assign(existing, patch); ctx.db.save('customers'); return existing;
+    }
     const c = { id: uid('cust'), venture_id: o.venture_id, name: o.name || '', email: o.email || '', plan: o.plan || '', mrr: o.mrr || 0,
-      since: ctx.now(), last_active: ctx.now(), failed_payment: false, refund_requested: false, satisfaction: null, churned: false, referrals: 0 };
-    C().push(c); ctx.db.save('customers'); ctx.emit('customer.added', {}, c.venture_id); return c;
+      since: ctx.now(), last_active: ctx.now(), failed_payment: false, failed_attempts: 0, refund_requested: false, satisfaction: null, churned: false, referrals: 0,
+      stripe_customer: o.stripe_customer || null, stripe_subscription: o.stripe_subscription || null, cancel_pending: false, paused: false, churned_at: null,
+      profile: {}, usage: {}, delivered_cycles: 0, last_delivery: null, upsell_offered_at: null, testimonial_asked_at: null, portal_token: tok() };
+    C().push(c); ctx.db.save('customers'); ctx.emit('customer.added', { customer_id: c.id }, c.venture_id); return c;
+  }
+  /** A subscription ended (Stripe says so, or the owner does). Stops the MRR immediately. */
+  function markChurned(id, reason = '') {
+    const c = C().find((x) => x.id === id); if (!c || c.churned) return c || null;
+    Object.assign(c, { churned: true, churned_at: ctx.now(), mrr: 0, cancel_pending: false, paused: false, churn_reason: reason });
+    ctx.db.save('customers'); ctx.emit('customer.churned', { customer_id: c.id, reason }, c.venture_id); return c;
   }
   const customers = (venture_id) => C().filter((c) => !venture_id || c.venture_id === venture_id);
   function patchCustomer(id, patch) {
@@ -78,20 +102,22 @@ function makeCrm(ctx) {
   /** Act before the customer leaves. */
   function retentionRisks(venture_id) {
     const out = [];
-    for (const c of customers(venture_id).filter((x) => !x.churned)) {
+    for (const c of customers(venture_id).filter((x) => !x.churned && !x.paused)) {
       const reasons = [];
       if (c.failed_payment) reasons.push('failed payment');
+      if (c.cancel_pending) reasons.push('cancellation scheduled');
       if (c.refund_requested) reasons.push('refund requested');
-      if (ctx.now() - c.last_active > 14 * DAY) reasons.push('inactive 14+ days');
+      const windowDays = c.last_delivery ? 45 : 14; // people on a delivery retainer engage less often than app users
+      if (ctx.now() - c.last_active > windowDays * DAY) reasons.push(`inactive ${windowDays}+ days`);
       if (c.satisfaction !== null && c.satisfaction <= 2) reasons.push('low satisfaction');
       const open = tickets(venture_id, 'open').filter((t) => t.customer_id === c.id);
       if (open.length >= 2) reasons.push('multiple open tickets');
-      if (reasons.length) out.push({ customer_id: c.id, name: c.name, mrr: c.mrr, reasons, action: reasons.includes('failed payment') ? 'send payment-recovery message' : reasons.includes('refund requested') ? 'personal outreach before refund' : 'send check-in / re-engagement' });
+      if (reasons.length) out.push({ customer_id: c.id, name: c.name, mrr: c.mrr, reasons, action: reasons.includes('failed payment') ? 'send payment-recovery message' : reasons.includes('cancellation scheduled') ? 'save the account before the period ends' : reasons.includes('refund requested') ? 'personal outreach before refund' : 'send check-in / re-engagement' });
     }
     return out.sort((a, b) => b.mrr - a.mrr);
   }
   const bugs = (venture_id) => tickets(venture_id, 'open').filter((t) => t.bug);
   function pipeline(venture_id) { const f = funnel(venture_id); return { leads: f.total, qualified: f.counts.qualified, customers: customers(venture_id).filter((c) => !c.churned).length }; }
-  return { addProspect, advance, prospects, funnel, conversionBy, whyNotGrowing, addCustomer, customers, patchCustomer, openTicket, closeTicket, tickets, retentionRisks, bugs, pipeline, FUNNEL };
+  return { addProspect, advance, prospects, funnel, conversionBy, whyNotGrowing, addCustomer, findCustomer, markChurned, customers, patchCustomer, openTicket, closeTicket, tickets, retentionRisks, bugs, pipeline, FUNNEL };
 }
 module.exports = { makeCrm, FUNNEL };

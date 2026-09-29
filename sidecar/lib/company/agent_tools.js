@@ -31,6 +31,10 @@ function register(co, root) {
     input_schema: S({ required: ['amount', 'purpose'], props: { amount: { type: 'number', minimum: 0.01 }, category: { type: 'string', enum: ['marketing', 'software', 'infrastructure', 'cogs', 'ai_inference', 'other_opex'] }, purpose: str(200) } }),
     handler: (i, { venture_id }) => { if (!co.settings().allow_paid) return { decision: 'DENIED', reason: 'free-only mode is on: nothing that costs money is authorised. Find a free way, or the owner can turn on paid actions.' }; return co.cfo.decide({ venture_id, amount: i.amount, category: i.category || 'other_opex', purpose: i.purpose }); } });
 
+  tool({ name: 'mail.draft', description: 'Draft an e-mail into the owner\'s daily approval digest. It never sends by itself: a human approves it first',
+    input_schema: S({ required: ['to', 'subject', 'body'], props: { to: str(200), subject: str(200), body: { type: 'string', maxLength: 5000 } } }),
+    handler: (i, { venture_id, agent_id }) => { const m = co.mail.queue({ venture_id, to: i.to, subject: i.subject, body: i.body, kind: 'agent', agent_id }); return { mail_id: m.id, status: m.status }; } });
+
   // Publish the world's built site (the files the Builder saved) through the deploy pipeline. Free targets only unless paid is allowed.
   tool({ name: 'site.publish', description: 'Publish the site the Builder made: local preview (no key), a ZIP for any free host (no key), or a free host you have a token for',
     required_permission: 2, risk: 'medium', input_schema: S({ props: { target: { type: 'string', enum: ['local', 'bundle', 'vercel', 'cloudflare', 'netlify'] }, expect: str(120) } }),

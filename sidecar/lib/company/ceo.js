@@ -55,6 +55,36 @@ function makeCeo(ctx) {
     return killed;
   }
 
+  // ---- CASH-FLOW GUARDRAIL: MRR against monthly cost, and no scaling of ads below the LTV/CAC floor ----
+  /**
+   * Deterministic, from verified numbers only. `ads_frozen` blocks marketing spend in the CFO (validation-stage tests are exempt:
+   * CAC is unknown then). `scale_ok` gates the SCALE decision. Numbers we do not have yet never trigger a freeze.
+   */
+  function cashflow(id) {
+    const v = ctx.ventures.get(id); const cfg = ctx.settings().guardrail; const m = ctx.ledger.monthly(id); const s = ctx.ledger.summary({ venture_id: id });
+    const mrr = round(ctx.crm.customers(id).filter((c) => !c.churned).reduce((a, c) => a + (c.mrr || 0), 0)); const cost = round(m.total_costs);
+    const recurring = mrr > 0 || !!(ctx.retainer && ctx.retainer.get(id)); // the MRR test only applies to subscription businesses
+    const cover = recurring && cost > 0 ? round(mrr / cost, 2) : null; const ratio = v && v.cac && v.ltv ? round(v.ltv / v.cac, 2) : null;
+    const reasons = [];
+    const ads_frozen = ratio !== null && ratio < cfg.min_ltv_cac && s.acquisition_costs > 0;
+    if (ads_frozen) reasons.push(`LTV/CAC is ${ratio}, below the ${cfg.min_ltv_cac} floor: ad spend is frozen`);
+    if (cover !== null && cover < cfg.min_mrr_cover) reasons.push(`MRR $${mrr} covers ${cover}x of the $${cost} monthly cost: do not scale yet`);
+    if (ratio === null) reasons.push('LTV/CAC is not measurable yet (needs customers and acquisition spend), so the floor cannot be checked');
+    const scale_ok = !ads_frozen && (cover === null || cover >= cfg.min_mrr_cover);
+    return { mrr, monthly_cost: cost, mrr_cover: cover, ltv_cac: ratio, ads_frozen, scale_ok, reasons };
+  }
+  /** Set or clear the ad freeze on the venture (the CFO reads it) and tell Marketing once. */
+  function applyGuardrail(id) {
+    const v = ctx.ventures.get(id); if (!v || !v.active) return null; const g = cashflow(id);
+    if (!!v.strategy.ads_frozen !== g.ads_frozen) {
+      ctx.ventures.update(id, { strategy: { ...v.strategy, ads_frozen: g.ads_frozen } });
+      ctx.memory.remember(id, 'financial', g.ads_frozen ? `Ads frozen: ${g.reasons[0]}` : 'Ads unfrozen: LTV/CAC is back at or above the floor', g);
+      if (g.ads_frozen) ctx.directives.add({ venture_id: id, role: 'Marketing', task: 'Ad spend is frozen', description: g.reasons[0] + '. Use direct outreach and follow-ups; fix retention or price before paying for traffic.', priority: 'high' });
+      ctx.emit(g.ads_frozen ? 'guardrail.ads_frozen' : 'guardrail.ads_unfrozen', g, id);
+    }
+    return g;
+  }
+
   // ---- the twelve questions, answered from data ----
   function answers(id) {
     const v = refresh(id); const opp = v.opportunity_id ? ctx.opportunities.get(v.opportunity_id) : null;
@@ -71,6 +101,7 @@ function makeCeo(ctx) {
       increase_spending: growthOk ? `yes – LTV/CAC ${ratio} with positive contribution` : ratio !== null ? `no – LTV/CAC ${ratio}` : 'unknown – not enough customer data',
       pivot: v.status === 'LAUNCH' && v.launched_at && (ctx.now() - v.launched_at) / DAY > 30 && v.revenue <= 0,
       shut_down: v.profit < 0 && -v.profit >= 0.7 * (v.kill_conditions.max_loss || Infinity),
+      cashflow: cashflow(id),
     };
   }
 
@@ -112,11 +143,15 @@ function makeCeo(ctx) {
         return d('CONTINUE', 'growing toward profitability', task('Marketing', 'Scale the best-converting channel', (ctx.memory.lessons(id)[0] || 'Double down on the channel with the lowest CAC.')));
       case 'PROFITABLE':
         if (m.contribution_profit < 0) return d('ADVANCE', 'monthly contribution turned negative', null, { to: 'DECLINE' });
-        if (m.contribution_profit >= goal) return d('SCALE', `monthly profit $${round(m.contribution_profit)} ≥ goal $${goal}`, task('Marketing', 'Scale acquisition', 'Increase spend on channels with LTV/CAC ≥ 3.'));
+        if (m.contribution_profit >= goal) {
+          const g = cashflow(id); if (!g.scale_ok) return d('CONTINUE', `profit target met but scaling is blocked: ${g.reasons[0]}`, task('Analyst', 'Fix unit economics before scaling', g.reasons.join(' ')));
+          return d('SCALE', `monthly profit $${round(m.contribution_profit)} ≥ goal $${goal}`, task('Marketing', 'Scale acquisition', 'Increase spend on channels with LTV/CAC ≥ 3.'));
+        }
         return d('CONTINUE', 'profitable; optimizing', task('Analyst', 'Optimize pricing and churn', 'Find the largest contribution-margin lever.'));
       case 'SCALING': {
         const prev = v.kpis.prev_monthly_profit; ctx.ventures.update(id, { kpis: { ...v.kpis, prev_monthly_profit: m.contribution_profit } });
         if (m.contribution_profit < 0 || (prev !== undefined && m.contribution_profit < prev * 0.7)) return d('ADVANCE', 'profit falling while scaling', null, { to: 'DECLINE' });
+        { const g = cashflow(id); if (g.ads_frozen) return d('CONTINUE', 'scaling paused by the cash-flow guardrail', task('Marketing', 'Hold ad spend', g.reasons[0])); }
         return d('CONTINUE', 'scaling', task('Marketing', 'Continue scaling', 'Hold spend at LTV/CAC ≥ 3.'));
       }
       case 'DECLINE':
@@ -170,6 +205,8 @@ function makeCeo(ctx) {
       if (needsHuman(dec, ctx.ventures.get(v.venture_id))) { const r = recommend(dec, `${v.name}: ${dec.action}${dec.to ? ` → ${dec.to}` : ''} — ${dec.reason}`); report.recommended.push(r.id); }
       else { try { execute(dec); } catch (e) { dec.error = e.message; } }
       report.decisions.push({ venture_id: v.venture_id, action: dec.action, to: dec.to, reason: dec.reason, error: dec.error });
+      if (!['CONTINUE', 'NONE'].includes(dec.action)) { try { ctx.trail.log('ceo.decision', { action: dec.action, to: dec.to, reason: dec.reason, error: dec.error }, { venture_id: v.venture_id, actor: 'ceo' }); } catch { /* receipt is best effort */ } }
+      try { applyGuardrail(v.venture_id); } catch { /* the guardrail must never break the review */ }
       const bs = budgetSignal(v.venture_id); if (bs) report.recommended.push(bs.id);
     }
     report.discover = discover();
@@ -216,6 +253,7 @@ function makeCeo(ctx) {
 
   /** Called when a human resolves an approval. */
   async function onApproval(a) {
+    const custom = ctx.approvalHandlers && ctx.approvalHandlers[a.type]; if (custom) { const r = RECS().find((x) => x.approval_id === a.id); if (r) { r.status = a.status; ctx.db.save('recommendations'); } return custom(a); }
     if (a.status !== 'approved') { const r = RECS().find((x) => x.approval_id === a.id); if (r) { r.status = 'rejected'; ctx.db.save('recommendations'); } if (a.type === 'venture_create') ctx.opportunities.setStatus(a.payload.opportunity_id, 'scored'); return { rejected: true }; }
     const r = RECS().find((x) => x.approval_id === a.id); if (r) { r.status = 'approved'; ctx.db.save('recommendations'); }
     if (a.type === 'tool') return ctx.tools.executeApproval(a.id);
@@ -229,6 +267,6 @@ function makeCeo(ctx) {
     }
     return { ok: true };
   }
-  return { refresh, review, answers, tick, execute, enforceKillRules, killVenture, discover, createFromOpportunity, onApproval, recommend, budgetSignal, ACTIVE_STATES, recommendations: () => RECS() };
+  return { refresh, review, answers, cashflow, applyGuardrail, tick, execute, enforceKillRules, killVenture, discover, createFromOpportunity, onApproval, recommend, budgetSignal, ACTIVE_STATES, recommendations: () => RECS() };
 }
 module.exports = { makeCeo };
