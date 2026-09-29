@@ -46,10 +46,20 @@ function inspectConnector(S, c) {
         h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: c.autoSync, onchange: (e) => api('PATCH', '/connectors/' + c.id, { autoSync: e.target.checked }) }), h('span', {}, 'Sync every 10 minutes', h('small', {}, 'Read-only. Feeds the verified ledger.'))),
         c.lastSyncAt ? h('div', { class: 'muted' }, 'Last sync ' + new Date(c.lastSyncAt).toLocaleString()) : null) : null,
       kind.contract ? h('div', {}, h('h3', {}, 'How agents hand work to this connector'), h('p', { class: 'muted', style: 'margin:0 0 4px' }, 'Draw a hallway from a room into this port. The last agent in that room ends its reply with JSON like this, and you approve each action.'), h('pre', {}, kind.contract)) : null,
-      c.kind === 'email' ? h('div', { class: 'muted' }, `Sent today: ${c.sentToday} of ${limit}`) : null
+      c.kind === 'email' ? h('div', { class: 'muted' }, `Sent today: ${c.sentToday} of ${limit}`) : null,
+      c.kind === 'comfyui' ? comfyExtras(c) : null
     ] : [h('p', { class: 'muted' }, 'This is a placeholder port. Work sent here is queued in the Outbox until an adapter exists.')]),
     h('h3', {}, 'Access'), h('p', { class: 'muted', style: 'margin:0' }, `A hallway into this port is only allowed from rooms that have “${S.caps[kind.cap]}”.`),
     h('button', { class: 'btn danger', onclick: SOV.removeSelection }, 'Remove connector (deletes saved keys)'));
+}
+
+// ComfyUI extras: try it, and (optionally) use your own workflow.
+function comfyExtras(c) {
+  const out = h('div', { class: 'row', style: 'flex-wrap:wrap' }), ta = h('textarea', { rows: '5', placeholder: 'Optional. Paste a workflow saved with "Save (API Format)". Use {{prompt}}, {{negative}}, {{seed}}, {{width}}, {{height}}, {{checkpoint}} where those values go.', 'aria-label': 'Custom ComfyUI workflow' });
+  return h('div', { class: 'stack' }, h('h3', {}, 'Try it'),
+    h('div', { class: 'row' }, h('button', { class: 'btn', onclick: async (e) => { e.target.disabled = true; e.target.textContent = 'Rendering…'; try { const r = await api('POST', '/comfy/test-image'); out.replaceChildren(...r.images.map((i) => h('img', { src: i.url, alt: 'Test image', style: 'max-width:100%;max-height:220px;border:1px solid var(--line2);border-radius:6px' }))); } catch (_) { /* toast shown */ } finally { e.target.disabled = false; e.target.textContent = 'Make a test image'; } } }, 'Make a test image')), out,
+    h('h3', {}, 'Your own workflow (advanced)'), h('p', { class: 'muted', style: 'margin:0' }, c.hasWorkflow ? 'A custom workflow is in use. Clear it to go back to the built-in one.' : 'The built-in text-to-image workflow is in use. Works with any model. Paste a workflow to use LoRAs, upscalers, video and more.'), ta,
+    h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: async () => { try { await api('POST', '/comfy/workflow', { workflow: ta.value }); toast(ta.value.trim() ? 'Workflow saved.' : 'Back to the built-in workflow.'); ta.value = ''; } catch (_) { /* toast shown */ } } }, ta.value ? 'Save workflow' : 'Save or clear workflow')));
 }
 
 function inspect() {
@@ -141,6 +151,7 @@ function outbox() {
     return h('div', { class: 'card' + (sop ? ' sop-card' : '') }, h('div', { class: 'row' }, h('strong', {}, sop ? '📄 ' + o.title : o.title), h('span', { class: 'pill ' + (o.status === 'blocked' ? 'bad' : 'ok') }, sop ? 'SOP' : o.status)),
       h('div', { class: 'muted' }, new Date(o.at).toLocaleString() + (o.fromRoom ? ' · ' + o.fromRoom : '')),
       sop ? h('details', { open: true }, h('summary', {}, 'Read the SOP'), h('pre', {}, String(o.content))) : h('pre', {}, String(o.content).slice(0, 1400)),
+      o.meta && o.meta.images && o.meta.images.length ? h('div', { class: 'thumbs' }, o.meta.images.map((i) => h('a', { href: i.url, target: '_blank', rel: 'noopener', title: i.name }, h('img', { src: i.url, alt: i.name, loading: 'lazy' })))) : null,
       o.meta && o.meta.files ? h('div', { class: 'row' }, h('span', { class: 'chip' }, 'built ' + o.meta.files.length + ' file' + (o.meta.files.length > 1 ? 's' : '')), h('a', { class: 'btn small primary', href: o.meta.preview, target: '_blank', rel: 'noopener' }, 'Open the site')) : null,
       h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: () => navigator.clipboard.writeText(o.content).then(() => toast('Copied.')) }, 'Copy'),
         sop ? [h('button', { class: 'btn small', onclick: () => download(o) }, 'Download .md'), h('button', { class: 'btn small', onclick: () => { SOV.closeDrawer(); api('POST', '/sop/replay').catch(() => {}); } }, 'Replay the flight')] : null)); }) : h('p', { class: 'muted' }, 'Finished work lands here as real results, not chat scrollback.'));
@@ -148,14 +159,14 @@ function outbox() {
 
 // ---------- Settings ----------
 let draft = null;
-const fresh = () => { const st = SOV.S.settings; draft = { provider: st.provider.name, model: st.provider.model, ollamaHost: st.ollama.host, keepAlive: st.ollama.keepAlive, numCtx: st.ollama.numCtx, par: st.concurrency.ollama, parOther: st.concurrency.other, speed: st.speed || 'fast', autoDelegate: st.autoDelegate !== false, autoContinue: st.autoContinue !== false, waitMinutes: st.waitMinutes == null ? 10 : st.waitMinutes, intro: st.intro, baseUrl: st.openaiCompat.baseUrl, key: '', policy: { ...st.policy }, budgets: { ...st.budgets }, models: null }; };
+const fresh = () => { const st = SOV.S.settings; draft = { provider: st.provider.name, model: st.provider.model, ollamaHost: st.ollama.host, keepAlive: st.ollama.keepAlive, numCtx: st.ollama.numCtx, par: st.concurrency.ollama, parOther: st.concurrency.other, speed: st.speed || 'fast', loopEval: (st.loop || {}).evaluate || 'smart', loopRev: (st.loop || {}).maxRevisions == null ? 1 : st.loop.maxRevisions, loopRounds: (st.loop || {}).maxRounds || 0, autoDelegate: st.autoDelegate !== false, autoContinue: st.autoContinue !== false, waitMinutes: st.waitMinutes == null ? 10 : st.waitMinutes, intro: st.intro, baseUrl: st.openaiCompat.baseUrl, key: '', policy: { ...st.policy }, budgets: { ...st.budgets }, models: null }; };
 function settings() {
   const S = SOV.S, st = S.settings; if (!draft) fresh();
   const d = draft, rerender = () => { SOV.drawerDirty = false; SOV.render(); };
   const providerLabels = { mock: 'Offline demo (no key)', openrouter: 'OpenRouter', ollama: 'Ollama (local models)', openai: 'OpenAI-compatible' };
   const saveAll = async () => {
     if (d.key) await api('POST', '/secrets', { name: d.provider === 'openai' ? 'openai' : 'openrouter', value: d.key });
-    await api('POST', '/settings', { provider: { name: d.provider, model: d.model }, ollama: { host: d.ollamaHost, keepAlive: d.keepAlive, numCtx: d.numCtx }, concurrency: { ollama: d.par, other: d.parOther }, speed: d.speed, autoDelegate: d.autoDelegate, autoContinue: d.autoContinue, waitMinutes: d.waitMinutes, intro: d.intro, openaiCompat: { baseUrl: d.baseUrl },
+    await api('POST', '/settings', { provider: { name: d.provider, model: d.model }, ollama: { host: d.ollamaHost, keepAlive: d.keepAlive, numCtx: d.numCtx }, concurrency: { ollama: d.par, other: d.parOther }, speed: d.speed, loop: { evaluate: d.loopEval, maxRevisions: d.loopRev, maxRounds: d.loopRounds }, autoDelegate: d.autoDelegate, autoContinue: d.autoContinue, waitMinutes: d.waitMinutes, intro: d.intro, openaiCompat: { baseUrl: d.baseUrl },
       policy: { directorStructure: d.policy.directorStructure, connectorWrites: d.policy.connectorWrites }, budgets: d.budgets });
     d.key = '';
   };
@@ -186,9 +197,12 @@ function settings() {
     ...providerBox,
     h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: async () => { try { await saveAll(); toast('Settings saved.'); } catch (_) {} } }, 'Save'),
       h('button', { class: 'btn', onclick: async () => { try { await saveAll(); toast('Testing the model…'); const r = await api('POST', '/provider/test'); toast(`Model replied in ${(r.ms / 1000).toFixed(1)}s (${r.model}): ${r.reply}`); } catch (_) {} } }, 'Save and test')),
+    h('h3', {}, 'Help'), h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: () => { SOV.closeDrawer && SOV.closeDrawer(); SOV.replayTutorial(); } }, 'Replay the tutorial')),
     h('h3', {}, 'Speed and autonomy'),
     SOV.field('Output length', h('select', { onchange: (e) => { d.speed = e.target.value; }, value: d.speed }, h('option', { value: 'fast' }, 'Fast (short, dense deliverables)'), h('option', { value: 'balanced' }, 'Balanced'), h('option', { value: 'thorough' }, 'Thorough (longest, slowest)')), 'Waiting time is mostly output length. Fast is the default.'),
     h('div', { class: 'row' }, SOV.field('Agents at once (cloud models)', h('input', { type: 'number', min: '1', max: '16', value: d.parOther, onchange: (e) => { d.parOther = +e.target.value; } }), 'How many agents may call the model at the same time.')),
+    SOV.field('How hard results are checked', h('select', { onchange: (e) => { d.loopEval = e.target.value; }, value: d.loopEval }, h('option', { value: 'smart' }, 'Smart: free checks on everything, a model review on copy, builds and money work'), h('option', { value: 'always' }, 'Always: a model review on every result (slower, costs more)'), h('option', { value: 'off' }, 'Free checks only (budget, missing files, thin answers)')), 'Every result is checked before it is accepted. A failed result is sent back with exactly what to fix.'),
+    h('div', { class: 'row' }, SOV.field('Times a result may be redone', h('input', { type: 'number', min: '0', max: '3', value: d.loopRev, onchange: (e) => { d.loopRev = +e.target.value; } })), SOV.field('Stop after this many rounds (0 = keep going until the goal)', h('input', { type: 'number', min: '0', max: '500', value: d.loopRounds, onchange: (e) => { d.loopRounds = +e.target.value; } }))),
     h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: d.autoDelegate, onchange: (e) => { d.autoDelegate = e.target.checked; } }), h('span', {}, 'The Director keeps idle agents busy', h('small', {}, 'Hands out extra drafts and analysis. Never sends, posts or spends.'))),
     h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: d.autoContinue, onchange: (e) => { d.autoContinue = e.target.checked; } }), h('span', {}, 'Keep working until the goal is reached', h('small', {}, 'When a round finishes, the Director plans the next one. Stops only when verified profit reaches the target.'))),
     SOV.field('Move on if only you can unblock a step, after (minutes)', h('input', { type: 'number', min: '0', max: '240', value: d.waitMinutes, onchange: (e) => { d.waitMinutes = +e.target.value; } }), 'The step stays on your Needs-you list and runs as soon as you have done it.'),
@@ -237,6 +251,22 @@ function msCard(S, ms, opts) {
     ms.why ? h('div', { class: 'muted', style: 'margin:2px 0 0;font-size:12px' }, ms.why) : null, ms.tasks.map((t) => taskRow(S, t, opts)));
 }
 
+// ---------- the autonomous loop ----------
+function loopCard(S) {
+  const j = S.journey, rm = j.roadmap, L = j.loop; if (!L) return null;
+  const acts = (S.activity || []).map((a) => a.title), has = (re) => acts.some((t) => re.test(t));
+  let phase = 'repeat';
+  if (j.achieved) phase = 'goal'; else if (has(/^Learning/)) phase = 'learn'; else if (j.busy === 'cycle' || (rm && rm.tailoring)) phase = 'plan'; else if (has(/^(Checking|Revising):/)) phase = 'evaluate'; else if (acts.length) phase = 'execute';
+  const steps = [['goal', 'Goal'], ['plan', 'Plan'], ['execute', 'Execute'], ['evaluate', 'Evaluate'], ['learn', 'Learn'], ['repeat', 'Repeat']], st = L.stats;
+  return h('div', {}, h('h3', {}, 'Autonomous loop'),
+    h('div', { class: 'card' }, h('div', { class: 'loopstrip', role: 'list' }, steps.map(([id, label], i) => [i ? h('i', { class: 'arrow', 'aria-hidden': 'true' }, '→') : null, h('span', { class: 'lstep' + (phase === id ? ' on' : ''), role: 'listitem', 'aria-current': phase === id ? 'step' : null }, label)])),
+      h('p', { class: 'muted', style: 'margin:6px 0 2px;font-size:12px' }, 'Agents check their own work, fix it, remember what they learned, and go again until the goal is reached.'),
+      h('div', { style: 'font-size:12px' }, st.evaluated ? `Checked ${st.evaluated} results · ${st.passedFirst} right first time · ${st.revised} sent back · ${L.lessons.length} lesson${L.lessons.length === 1 ? '' : 's'} learned` : 'No results checked yet.'),
+      L.lastStop ? h('div', { class: 'mem-line' }, h('b', {}, 'Last stop: '), L.lastStop.reason) : null,
+      L.lessons.length ? h('div', { class: 'mem-line' }, h('b', {}, 'Latest lesson: '), L.lessons[0].text) : null,
+      h('details', {}, h('summary', {}, 'When does it stop?'), h('ul', { class: 'stops' }, L.conditions.map((c) => h('li', {}, c.text))))));
+}
+
 // ---------- strategy, memory, site (Journey helpers) ----------
 function ladderCard(S) {
   const st = S.journey.strategy; if (!st) return null;
@@ -252,6 +282,7 @@ function memoryCard(S) {
   return h('div', {}, h('h3', {}, 'Team memory (every agent reads this)'),
     h('div', { class: 'card' }, m.brief ? h('div', { class: 'mem-line' }, h('b', {}, 'Brief: '), m.brief) : null,
       ...m.decisions.slice().reverse().map((d) => h('div', { class: 'mem-line' }, '✓ ', d.text, ' ', h('small', {}, d.by))),
+      ...(m.lessons || []).slice().reverse().slice(0, 4).map((l) => h('div', { class: 'mem-line' }, '💡 ', l.text, ' ', h('small', {}, l.by))),
       m.spendPlan && m.spendPlan.items.length ? h('div', { class: 'mem-line' }, h('b', {}, `Spend plan ${usd(m.spendPlan.totalCents)} of ${usd(m.spendPlan.budgetCents)}: `), m.spendPlan.items.map((i) => `${i.item} ${usd(i.costCents)}`).join(' · ')) : null,
       !has ? h('div', { class: 'muted' }, 'Fills as the team works: decisions, handoffs and the spend plan.') : null,
       h('div', { class: 'mem-line' }, h('small', {}, `Available to spend now: ${usd(m.budget.availableCents)} · this stage: ${usd(m.budget.stageCents)}`))),
@@ -336,7 +367,7 @@ function journeyPanel() {
         n.kind === 'blocked' && n.connect ? h('button', { class: 'btn small primary', onclick: () => openConnector(n.connect) }, 'Connect ' + kindLabel(S, n.connect)) : null,
         n.kind === 'failed' ? h('button', { class: 'btn small primary', onclick: () => api('POST', n.carry ? `/journey/carry/${n.carry}/retry` : `/journey/task/${n.taskId}/retry`).catch(() => {}) }, 'Retry') : null,
         n.carry ? h('button', { class: 'btn small', onclick: () => api('POST', `/journey/carry/${n.carry}/done`).catch(() => {}) }, 'Dismiss') : h('button', { class: 'btn small', onclick: () => api('POST', `/journey/task/${n.taskId}/skip`).catch(() => {}) }, 'Skip')))));
-    kids.push(ladderCard(S), memoryCard(S), siteCard(S));
+    kids.push(loopCard(S), ladderCard(S), memoryCard(S), siteCard(S));
     if (j.extras && j.extras.length) kids.push(h('h3', {}, 'Extra work the Director handed out'), h('p', { class: 'sub', style: 'margin:0 0 4px' }, 'Idle agents get useful drafts and analysis so nobody waits.'),
       h('div', { class: 'card' }, ...j.extras.slice(0, 8).map((x) => h('div', { class: 'trow' }, h('span', { class: 'chip' }, roleLabel(S, x.role)), h('span', { class: 'tt' }, x.title), x.agentName ? h('span', { class: 'chip' }, x.agentName) : null, h('span', { class: 'pill ' + (x.status === 'done' ? 'ok' : x.status === 'failed' ? 'bad' : x.status === 'running' ? 'warn' : '') }, x.status === 'running' ? 'working' : x.status)))));
     if (j.cycles && j.cycles.length) kids.push(h('h3', {}, 'Earlier rounds'), h('div', { class: 'card' }, ...j.cycles.map((c) => h('div', { class: 'mem-line' }, h('b', {}, 'Round ' + c.n), ` · ${c.tasksDone} tasks + ${c.extras} extras · net ${usd(c.netCents)}`, c.decision ? h('small', {}, ' · then: ' + c.decision) : null))));
@@ -377,7 +408,7 @@ function worldsPanel() {
 
 // ---------- Integrations ----------
 const CATS = [['payments', 'Get paid and verify revenue', ['stripe', 'gumroad']], ['stores', 'Online stores', ['shopify', 'etsy', 'woocommerce']], ['ads', 'Advertising', ['meta_ads']], ['messaging', 'Messages and email', ['email', 'slack', 'discord', 'telegram']],
-  ['productivity', 'Docs, sheets and calendars', ['notion', 'drive', 'calendar', 'sheets', 'airtable']], ['automation', 'Automation', ['webhook']]];
+  ['productivity', 'Docs, sheets and calendars', ['notion', 'drive', 'calendar', 'sheets', 'airtable']], ['creative', 'Image and content generation', ['comfyui']], ['automation', 'Automation', ['webhook']]];
 let iFilter = 'all', iQuery = '';
 function integrationsPanel() {
   const S = SOV.S, reqs = Object.fromEntries(((S.journey.roadmap && S.journey.roadmap.requirements) || []).map((r) => [r.kind, r]));
@@ -390,7 +421,10 @@ function integrationsPanel() {
       h('div', { class: 'muted', style: 'margin:3px 0 6px;font-size:12px' }, m.blurb), h('div', { class: 'row' }, h('span', { class: 'pill' }, m.mode === 'source' ? 'reads data' : m.mode === 'sink' ? 'takes actions' : 'reads + acts'),
         h('button', { class: 'btn small' + (r && !ready(k) ? ' primary' : ''), onclick: () => openConnector(k) }, has(k) ? 'Open' : 'Add')));
   };
-  const kids = [h('p', { class: 'sub' }, 'Every integration is a port on your station. Reads feed the verified ledger. Anything that sends, posts or writes waits for your approval unless you turn that off in Settings. Keys stay on this computer.'),
+  const comfyOk = Object.values(S.connectors).some((c) => c.kind === 'comfyui' && c.status === 'ready');
+  const kids = [comfyOk ? null : h('div', { class: 'card', style: 'border-color:#ff8a3d' }, h('strong', {}, 'Make images for free with ComfyUI'), h('p', { class: 'muted', style: 'margin:4px 0 6px' }, 'Start ComfyUI on this computer, then press the button. Your agents will make product photos, ads and hero images, and your website will use them.'),
+      h('div', { class: 'row' }, h('button', { class: 'btn small primary', onclick: async (e) => { e.target.disabled = true; try { const r = await api('POST', '/comfy/connect'); toast(r.detail); } catch (_) { /* the error toast is already shown */ } finally { e.target.disabled = false; } } }, 'Find and connect ComfyUI'), h('a', { class: 'btn small', href: 'https://github.com/comfy-org/ComfyUI', target: '_blank', rel: 'noopener' }, 'Get ComfyUI'))),
+    h('p', { class: 'sub' }, 'Every integration is a port on your station. Reads feed the verified ledger. Anything that sends, posts or writes waits for your approval unless you turn that off in Settings. Keys stay on this computer.'),
     h('input', { type: 'text', placeholder: 'Search integrations…', 'aria-label': 'Search integrations', value: iQuery, oninput: (e) => { iQuery = e.target.value; clearTimeout(integrationsPanel.t); integrationsPanel.t = setTimeout(() => { SOV.drawerDirty = false; SOV.render(); const i = document.querySelector('#drawer input[type=text]'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 250); } }),
     h('div', { class: 'filters' }, [['all', 'All'], ['plan', 'For your plan'], ['connected', 'Connected'], ['reads', 'Reads data'], ['acts', 'Takes actions']].map(([id, l]) => h('button', { type: 'button', 'aria-pressed': String(iFilter === id), onclick: () => { iFilter = id; redraw(); } }, l)))];
   let any = false;

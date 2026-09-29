@@ -91,7 +91,7 @@ SOV.openGoal = () => {
     try {
       await api('POST', '/goal', { name: ids.name.value.trim(), targetCents: Math.round(ids.target.value * 100), capitalCents: Math.round(ids.capital.value * 100), riskCents: Math.round(ids.risk.value * 100), notes: ids.notes.value.trim() });
       SOV.closeModal(); SOV.goalPrompted[S.world.id] = true;
-      if (!editing) { SOV.chatAgent = Object.values(SOV.S.agents).find((a) => a.role === 'director').id; SOV.openDrawer('journey'); toast('Goal saved. The Director is drafting your milestones.'); } else toast('Goal updated. Your plan is unchanged.');
+      if (!editing) { SOV.chatAgent = Object.values(SOV.S.agents).find((a) => a.role === 'director').id; SOV.openDrawer('journey'); toast('Goal saved. The Director is drafting your milestones.'); if (SOV.startTutorial) setTimeout(() => SOV.startTutorial(), 500); } else toast('Goal updated. Your plan is unchanged.');
     } catch (_) { /* toast shown */ }
   };
   SOV.modal(h('div', { class: 'stack' }, h('img', { src: 'assets/wordmark.png', alt: 'Sovereign', style: 'height:16px;width:auto;align-self:flex-start;margin-bottom:2px' }),

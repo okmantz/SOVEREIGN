@@ -268,3 +268,31 @@ details.res summary { cursor: pointer; color: var(--muted); font-size: 11.5px; }
 .sop-card { border-color: var(--amber) !important; box-shadow: 0 0 0 1px rgba(255, 197, 66, .25); }
 .sop-card pre { max-height: 260px; }
 .banner-ok { border-color: var(--green); background: rgba(0, 255, 136, .09); }
+
+/* generated images */
+.thumbs { display: flex; flex-wrap: wrap; gap: 6px; }
+.thumbs img { width: 96px; height: 96px; object-fit: cover; border: 1px solid var(--line2); border-radius: 6px; background: #021208; }
+.thumbs a:hover img { border-color: var(--green); }
+
+/* autonomous loop */
+.loopstrip { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.lstep { padding: 3px 9px; border: 1px solid #0b4324; border-radius: 999px; font-size: 12px; color: var(--muted); }
+.lstep.on { color: #021208; background: var(--green); border-color: var(--green); box-shadow: 0 0 10px var(--green); font-weight: 700; }
+.loopstrip .arrow { color: #2a6a45; font-style: normal; font-size: 12px; }
+.stops { margin: 6px 0 0; padding-left: 18px; font-size: 12px; }
+
+/* tutorial */
+#tutorial { position: fixed; inset: 0; z-index: 60; }
+#tutorial .tshield { position: absolute; inset: 0; }
+#tutorial .tspot { position: absolute; border-radius: 10px; border: 2px solid var(--green); box-shadow: 0 0 0 9999px rgba(0, 6, 3, .72), 0 0 22px var(--green); pointer-events: none; transition: all .25s ease; }
+#tutorial .tcard { position: absolute; width: min(340px, calc(100vw - 16px)); background: #03150b; border: 1px solid var(--green); border-radius: 10px; padding: 14px 16px; box-shadow: 0 0 26px rgba(0, 255, 136, .35); }
+#tutorial .tcount { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+#tutorial .ttitle { margin: 4px 0 6px; font-size: 16px; color: var(--green); }
+#tutorial .ttext { margin: 0 0 12px; font-size: 13.5px; line-height: 1.5; }
+#tutorial .trow2 { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#tutorial .tdots { display: flex; gap: 5px; }
+#tutorial .tdot { width: 8px; height: 8px; border-radius: 50%; background: #123d26; }
+#tutorial .tdot.past { background: #2a8a55; }
+#tutorial .tdot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+#tutorial .tbtns { display: flex; gap: 6px; }
+@media (prefers-reduced-motion: reduce) { #tutorial .tspot { transition: none; } }
