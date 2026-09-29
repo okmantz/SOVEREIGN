@@ -1,10 +1,12 @@
 {
   "name": "sovereign",
-  "version": "0.2.0",
-  "description": "A pixel-art command station where a Director agent and its crew build and run businesses toward a profit target you set.",
+  "version": "0.3.0",
+  "description": "A command station where a Director agent plans your goal, builds a team of agents, and runs the work toward a profit target you set.",
   "private": true,
   "license": "MIT",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node sidecar/index.js",
     "test": "node --test"
