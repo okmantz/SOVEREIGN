@@ -27,7 +27,7 @@ test('dead ventures cannot be worked, even by trusted agents', () => {
   assert.equal(co.permissions.authorize({ agent_id: 'a', venture_id: id, level: 2 }).decision, 'deny');
 });
 test('tool registry: schema, CFO gate, approval queue, approved execution', async () => {
-  const { co } = mk(); const id = venture(co, 100); let ran = 0;
+  const { co } = mk({ settings: { allow_paid: true } }); const id = venture(co, 100); let ran = 0;
   co.tools.register({ name: 't.spend', description: 'x', required_permission: 3, cost: 10, spend_category: 'marketing', input_schema: { type: 'object', required: ['q'], properties: { q: { type: 'string' } } }, handler: async () => { ran++; return 'ok'; } });
   assert.equal((await co.tools.invoke('t.spend', {}, { agent_id: 'a', venture_id: id })).status, 'error');
   const r = await co.tools.invoke('t.spend', { q: 'x' }, { agent_id: 'a', venture_id: id }); assert.equal(r.status, 'pending_approval'); assert.equal(ran, 0);
