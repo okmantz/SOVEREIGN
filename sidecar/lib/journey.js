@@ -114,6 +114,7 @@ function completeSetup(store) {
   const now = store.state, st = strategy.current(now);
   now.roadmap.status = 'running'; now.roadmap.paused = false; now.roadmap.startedAt = Date.now(); now.journey.stage = 'run';
   ensureVenture(store);
+  try { require('./company/bridge').ensureVenture(store); } catch (e) { console.error('[company]', e.message); } // the goal becomes the CEO's primary venture
   memory.setBrief(now, { brief: `${st ? `Stage ${now.strategy.current + 1} of ${now.strategy.stages.length}: "${st.title}". ${st.thesis} ` : ''}Budget ${money(memory.stageBudget(now))}. Independent tasks run at the same time; reviews and reports wait for the work they review. Stay inside the owner's constraints.` });
   sop.issue(store); // the plan, written up as an SOP, lands in the Outbox and flies through the rooms
   say(store, `The team is in place: ${now.roadmap.agents.map((a) => a.label).join(', ')}. The business SOP is in your Outbox. I'm starting on milestone “${now.roadmap.milestones[0].title}” and will keep every agent busy. I'll only come to you for approvals, keys and steps only you can do.`);
@@ -125,6 +126,7 @@ function completeSetup(store) {
 // Tasks that do not depend on each other run at the same time, one per agent. The Director keeps idle agents busy with
 // extra drafts and analysis, briefs the whole team after every milestone, and only stops for the owner when it must.
 const DONE = orchestrator.DONE;
+const BRIEF_ROLES = new Set(['ceo', 'cfo', 'data_analyst', 'finance', 'account_manager', 'sales_closer', 'ad_manager', 'critic', 'product_manager']); // roles that decide with the company's real numbers in front of them
 const running = new WeakMap(), flights = new WeakMap(), wakers = new WeakMap(), tailoring = new WeakMap();
 const perWorld = (wm, store, make) => { const root = worlds.rootOf(store); let m = wm.get(root); if (!m) wm.set(root, m = new Map()); const wid = worlds.idOf(store); if (!m.has(wid)) m.set(wid, make()); return m.get(wid); };
 const fl = (store) => perWorld(flights, store, () => new Map());
@@ -185,6 +187,7 @@ async function execute(store, ref, agent) {
   const ad = target && integrations.adapterFor(target.kind);
   if (ad && ad.contract) instructions += `\nEnd your reply with exactly one JSON object shaped like ${ad.contract} to hand this to "${target.name}".`;
   let previous = ref.extra ? orchestrator.recentInputs(rm) : orchestrator.inputsFor(rm, ms, t);
+  if (BRIEF_ROLES.has(agent.role)) { const b = require('./company/bridge').briefing(store); if (b) previous = (previous ? previous + '\n\n' : '') + (w.settings.provider.name === 'ollama' ? b.slice(0, 1200) : b); }
   if (['builder', 'ecommerce_manager', 'developer'].includes(agent.role)) { const sc = require('./sites').context(store); if (sc) previous = (previous ? previous + '\n\n' : '') + sc; }
   const r = await runner.assign(store, { agentId: agent.id, refId: t.id, taskId: t.task || undefined, instructions: instructions.trim(), title: `${ms.title} · ${t.title}`, taskLabel: t.title,
     context: { goal: rm.goal, milestone: ms.title, previous, words: sp.words }, maxTokens: sp.tokens, light: !!ref.extra });
@@ -430,6 +433,7 @@ function replan(store, { advance = false } = {}) {
 }
 // Every 20 seconds: restart anything that should be running, and un-pause what stopped for a temporary reason (a model outage or a daily budget).
 function tickAll(root) {
+  try { const b = require('./company/bridge'); if (!root.__companyBusy) { root.__companyBusy = true; b.tick(root).catch(() => {}).finally(() => { root.__companyBusy = false; }); } } catch (_) { /* the company layer must never stop the autopilot */ }
   for (const w of Object.values(root.data.worlds)) {
     const rm = w.roadmap; if (!rm || rm.status !== 'running') continue;
     const view = root.forWorld(w.id);

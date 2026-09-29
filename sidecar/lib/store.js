@@ -34,6 +34,8 @@ function blankSettings() {
     loop: { evaluate: 'smart', maxRevisions: 1, maxRounds: 0 }, // the autonomous task loop: how hard each result is checked, how often it is redone, optional round cap
     autoDelegate: true,   // the Director hands extra work to agents that would otherwise sit idle
     intro: true,
+    // company layer: free-only by default. allowPaid must be turned on by the owner before ANY action that costs money can run.
+    company: { enabled: true, autonomy: 'approval_only', allowPaid: false, autopilot: false },
     ingestSecretSet: false
   };
 }

@@ -10,8 +10,8 @@ const jobs = require('./jobs');
 
 const DONE = new Set(['done', 'skipped']);
 const LOOK = 2;
-const CONSUMER_ROLES = new Set(['critic', 'finance', 'data_analyst', 'developer', 'ecommerce_manager']);
-const CONSUMER_TASKS = new Set(['landing_page_build', 'draft_outreach_batch', 'followups', 'reply_to_lead', 'store_site', 'import_products', 'review_copy', 'refund_review', 'kill_or_scale', 'venture_pnl']);
+const CONSUMER_ROLES = new Set(['critic', 'finance', 'data_analyst', 'developer', 'ecommerce_manager', 'ceo', 'devops']);
+const CONSUMER_TASKS = new Set(['landing_page_build', 'draft_outreach_batch', 'followups', 'reply_to_lead', 'store_site', 'import_products', 'review_copy', 'refund_review', 'kill_or_scale', 'venture_pnl', 'spend_review', 'unit_economics_review', 'runway_report', 'churn_rescue', 'renewal_upsell']);
 const isConsumer = (t) => t.owner === 'human' || CONSUMER_ROLES.has(t.role) || CONSUMER_TASKS.has(t.task);
 
 const flatten = (rm) => rm.milestones.flatMap((ms, mi) => ms.tasks.map((t) => ({ ms, t, mi })));
@@ -63,7 +63,13 @@ const EXTRAS = {
   ad_manager: [{ task: 'creative_briefs', title: 'Write ad creative briefs' }],
   ecommerce_manager: [{ task: 'pricing_review', title: 'Review pricing and margin' }],
   builder: [{ task: 'mvp_spec', title: 'Write the smallest build spec' }],
-  customer_support: [{ task: 'faq_builder', title: 'Draft the FAQ' }]
+  customer_support: [{ task: 'faq_builder', title: 'Draft the FAQ' }],
+  ceo: [{ task: 'launch_plan', title: 'Plan the first customers' }],
+  cfo: [{ task: 'unit_economics_review', title: 'Review the unit economics', early: true }, { task: 'runway_report', title: 'Report cash and runway' }],
+  product_manager: [{ task: 'user_stories', title: 'Write the user stories' }, { task: 'pricing_test', title: 'Design a pricing test' }],
+  devops: [{ task: 'release_checklist', title: 'Write the release checklist', early: true }, { task: 'monitoring_setup', title: 'Set up monitoring' }],
+  account_manager: [{ task: 'onboarding_plan', title: 'Plan customer onboarding', early: true }],
+  seo_specialist: [{ task: 'keyword_map', title: 'Build the keyword map', early: true }, { task: 'publishing_plan', title: 'Plan the publishing order' }]
 };
 
 function pickExtra(rm, agent, { early = false, done = [] } = {}) {

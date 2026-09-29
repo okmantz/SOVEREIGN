@@ -11,6 +11,7 @@ const runner = require('./runner');
 const ledger = require('./ledger');
 const jobs = require('./jobs');
 const worlds = require('./worlds');
+const bridge = require('./company/bridge');
 const memory = require('./memory');
 const strategy = require('./strategy');
 const activity = require('./activity');
@@ -28,7 +29,8 @@ const ACTIONS = {
   remember:         ['text'],
   update_agent:     ['agent'],
   remove_agent:     ['agent'],
-  message_world:    ['world', 'text']
+  message_world:    ['world', 'text'],
+  create_world:     ['name', 'kind']
 };
 // Work and small tweaks happen immediately. Anything that changes the station's structure waits for the owner.
 const IMMEDIATE = new Set(['assign_task', 'update_agent', 'message_world', 'run_task', 'remember']);
@@ -105,6 +107,10 @@ function applyPlan(store, actions, { dry = false, ctx } = {}) {
         agents.updateAgent(s, ag.id, { settings: a.settings, persona: a.persona, name: a.name });
       } else if (a.type === 'remove_agent') {
         const ag = findAgent(s, a.agent, refs); assert(ag, `There is no agent called "${a.agent}".`); agents.deleteAgent(s, ag.id);
+      } else if (a.type === 'create_world') {
+        assert(worlds.KINDS[a.kind], `Unknown world kind "${a.kind}". Use one of: ${Object.keys(worlds.KINDS).join(', ')}.`);
+        assert(String(a.name).trim().length >= 2, 'A world needs a name.'); assert(Object.keys(where.root.data.worlds).length < 8, 'That is already 8 worlds. Finish or remove one first.');
+        later.push({ kind: 'new_world', name: String(a.name).trim().slice(0, 32), worldKind: a.kind, goal: a.goal ? String(a.goal).slice(0, 160) : String(a.name), targetCents: a.targetCents, capitalCents: a.capitalCents, riskCents: a.riskCents, ventureId: a.ventureId });
       } else if (a.type === 'message_world') {
         const target = where.root.world(a.world) || Object.values(where.root.data.worlds).find((w) => w.name.toLowerCase() === String(a.world).toLowerCase());
         assert(target, `There is no world called "${a.world}".`); assert(worlds.isLinked(where.root, where.worldId, target.id), `Connect this world to "${target.name}" first (Worlds panel).`);
@@ -118,6 +124,7 @@ function applyPlan(store, actions, { dry = false, ctx } = {}) {
       if (t.kind === 'room') runner.dispatch(store, { start: t.room.startsWith('room:') ? t.room : 'room:' + t.room, task: t.task }).catch((e) => noteDirector(store, `The task in that room failed: ${e.message}`));
       else if (t.kind === 'assign') runner.assign(store, { agentId: t.agentId, taskId: t.task, instructions: t.instructions, title: `${t.agent}: ${t.task || 'task'}` }).catch((e) => noteDirector(store, `${t.agent} could not finish: ${e.message}`));
       else if (t.kind === 'remember') { memory.addDecision(store.state, t.text, 'Director'); store.change('state'); }
+      else if (t.kind === 'new_world') { try { const wid = bridge.createWorld(store, { name: t.name, kind: t.worldKind, goal: t.goal, targetCents: t.targetCents, capitalCents: t.capitalCents, riskCents: t.riskCents, ventureId: t.ventureId }); noteDirector(store, `I opened a new world, “${t.name}”, linked to this one by a portal. Its goal is set and its roadmap is being drafted: open it to approve the plan.`); void wid; } catch (e) { noteDirector(store, `I could not open that world: ${e.message}`); } }
       else if (t.kind === 'world') { try { worlds.deliver(store, t.target, t.text); } catch (e) { noteDirector(store, e.message); } }
     }
   }
@@ -133,7 +140,8 @@ function describe(actions) {
     create_connector: () => `Connector: ${a.name || a.kind}`, create_venture: () => `Venture: ${a.name}, loss limit ${money(int(a.maxLossCents, int(a.budgetCents)))}`,
     run_task: () => `Run now in ${nm(a.room)}: ${String(a.task).slice(0, 60)}`,
     assign_task: () => `Ask ${a.agent} to: ${String(a.task || a.instructions).slice(0, 70)}`, update_agent: () => `Update ${a.agent}'s settings`,
-    remember: () => `Remember: ${String(a.text).slice(0, 70)}`, remove_agent: () => `Remove agent ${a.agent}`, message_world: () => `Message world ${a.world}: ${String(a.text).slice(0, 60)}`
+    remember: () => `Remember: ${String(a.text).slice(0, 70)}`, remove_agent: () => `Remove agent ${a.agent}`, message_world: () => `Message world ${a.world}: ${String(a.text).slice(0, 60)}`,
+    create_world: () => `New world: ${a.name} (${a.kind}), its own goal, team and roadmap, linked by a portal`
   }[a.type]()));
 }
 
@@ -145,6 +153,7 @@ function summarize(actions) {
   if (c.create_hallway) bits.push(`${c.create_hallway} hallway${c.create_hallway > 1 ? 's' : ''}`);
   if (c.create_connector) bits.push(`${c.create_connector} connector${c.create_connector > 1 ? 's' : ''}`);
   if (c.create_venture) bits.push(`${c.create_venture} venture${c.create_venture > 1 ? 's' : ''}`);
+  if (c.create_world) bits.push(`${c.create_world} new world${c.create_world > 1 ? 's' : ''}`);
   return 'Director plan: ' + (bits.join(', ') || 'a few changes');
 }
 
@@ -179,13 +188,15 @@ function directorSystem(state, store) {
     memory.block(state),
     (() => { const sv = strategy.view(state); return sv ? 'Capital ladder: ' + sv.stages.map((x, i) => `${i + 1}. ${x.title} [${x.status}] target ${money(x.targetCents)}`).join(' | ') : ''; })(),
     (() => { if (!store) return ''; const busy = activity.list(store).map((x) => `${(state.agents[x.agentId] || {}).name} (${x.title})`); return busy.length ? 'Working right now: ' + busy.join('; ') + '. Give work to everyone else.' : 'Nobody is working right now: put the team to work.'; })(),
+    (() => { if (!store) return ''; try { const b = bridge.briefing(store); return b ? 'The CEO sits above you and sets strategy; follow its direction. ' + b : ''; } catch (_) { return ''; } })(),
     `Rooms: ${rooms}\nAgents: ${crew}\nVentures: ${vs}${linked.length ? '\nLinked worlds: ' + linked.join(', ') : ''}`,
     `Reply with ONLY JSON: {"say": string, "actions": Action[]}. Keep "say" short. Actions:
 assign_task {agent: <name>, task?: <task id from that agent's list>, instructions?}  // tell an agent to do work now; no approval needed
 update_agent {agent, settings?: {key: value}, persona?}  // tune an agent's saved job settings
 message_world {world: <linked world name>, text}  // hand a request to another world
+create_world {name, kind: general|ecommerce|trading|content|services|product, goal?, targetCents?, capitalCents?, riskCents?}  // a separate business that deserves its own team and roadmap; the owner approves it
 create_room {ref?, name, kind: lab|workshop|market|studio|adbay|storefront|support|vault|review|custom, w?, h?}
-create_agent {ref?, name, role: researcher|data_analyst|lead_generator|email_marketer|sales_closer|copywriter|content_manager|social_manager|designer|ad_manager|ecommerce_manager|builder|developer|customer_support|ops|finance|critic|custom}  // gets their own desk automatically
+create_agent {ref?, name, role: ceo|cfo|researcher|data_analyst|lead_generator|email_marketer|sales_closer|copywriter|content_manager|social_manager|seo_specialist|designer|ad_manager|ecommerce_manager|product_manager|builder|developer|devops|customer_support|account_manager|ops|finance|critic|custom}  // gets their own desk automatically
 remove_agent {agent}
 create_hallway {from, to}  // ends: "inbox", "outbox", "room:<ref|id>", "connector:<ref|id>"
 create_connector {ref?, kind: stripe|email|calendar|drive|notion|etsy|shopify|woocommerce|gumroad|meta_ads|slack|discord|telegram|airtable|sheets|webhook, name?, near?: <room ref|id>}

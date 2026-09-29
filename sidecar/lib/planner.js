@@ -190,6 +190,7 @@ function buildRoadmapBase(store) {
     milestones: JSON.parse(JSON.stringify(w.journey.milestones)) };
   if (rm.path === 'trading') rm.summary += ' Trading carries risk of loss and this plan promises no returns; it paper-trades before any real money.';
   budgetFit(rm, w.mission);
+  require('./company/plan').augment(w, rm); // CEO strategy, CFO budget, the path's specialists, deploy, and the CEO's closing review
   rm.requirements = deriveRequirements(rm, prev); rm.agents = neededAgents(rm);
   w.roadmap = rm;
   return rm;
@@ -212,7 +213,7 @@ async function tailorRoadmap(store) {
 }
 async function buildRoadmap(store) { buildRoadmapBase(store); await tailorRoadmap(store); }
 
-const DEFAULT_NAMES = { researcher: 'Scout', data_analyst: 'Delta', lead_generator: 'Prospect', email_marketer: 'Herald', sales_closer: 'Closer', copywriter: 'Quill', content_manager: 'Editor', social_manager: 'Echo', designer: 'Pixel', ad_manager: 'Pilot', ecommerce_manager: 'Merchant', builder: 'Forge', developer: 'Dev', customer_support: 'Helper', ops: 'Ops', finance: 'Tally', critic: 'Cato', custom: 'Agent' };
+const DEFAULT_NAMES = { researcher: 'Scout', data_analyst: 'Delta', lead_generator: 'Prospect', email_marketer: 'Herald', sales_closer: 'Closer', copywriter: 'Quill', content_manager: 'Editor', social_manager: 'Echo', designer: 'Pixel', ad_manager: 'Pilot', ecommerce_manager: 'Merchant', builder: 'Forge', developer: 'Dev', customer_support: 'Helper', ops: 'Ops', finance: 'Tally', critic: 'Cato', ceo: 'Chief', cfo: 'Treasurer', product_manager: 'Scope', devops: 'Ship', account_manager: 'Anchor', seo_specialist: 'Rank', custom: 'Agent' };
 
 // The Director's deployment plan: only the agents, rooms, connectors and hallways this roadmap needs.
 function deployActions(world) {

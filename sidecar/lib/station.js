@@ -46,6 +46,7 @@ const ROOM_KINDS = {
   support:    { label: 'Support desk',    color: '#5ab0ff', caps: ['email.draft', 'email.send', 'calendar.read', 'calendar.write', 'notion.write', 'drive.write', 'fs.workspace', 'notify.send'] },
   vault:      { label: 'Ledger vault',    color: '#00ff88', caps: ['payments.read', 'ads.read', 'shop.read', 'fs.workspace', 'notify.send', 'db.write', 'webhook.send'] },
   review:     { label: 'Review chamber',  color: '#d6ff3a', caps: ['fs.workspace', 'web.fetch', 'notify.send'] },
+  boardroom:  { label: 'Boardroom',       color: '#f2c94c', caps: ['web.search', 'web.fetch', 'fs.workspace', 'payments.read', 'ads.read', 'shop.read', 'drive.write', 'db.write', 'notify.send'] },
   custom:     { label: 'Custom room',     color: '#8fbf9f', caps: ['fs.workspace'] }
 };
 

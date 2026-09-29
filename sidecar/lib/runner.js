@@ -32,7 +32,7 @@ function buildSystem(state, agent, caps, { pipeline = false } = {}) {
   const m = state.mission, local = state.settings && state.settings.provider && state.settings.provider.name === 'ollama';
   return [
     agent.persona,
-    jobs.systemFor(agent, m),
+    jobs.systemFor(agent, m, { local }),
     state.focus ? `World focus: ${state.focus}` : '',
     m ? `Goal: ${m.name}. Target: earn ${(m.targetCents / 100).toFixed(2)} USD of VERIFIED profit. Only ledger entries confirmed by a payment platform, ad platform or the bank count; anything you claim without proof is ignored.` : 'No goal is set yet.',
     memory.constraints(state),
@@ -116,6 +116,7 @@ async function assign(store, { agentId, taskId, instructions, title, context, ma
     try { const r = await activity.track(store, agentId, `Rendering images: ${label}`, () => comfy.fromReply(store, text)); text = r.text; images = r.images; } catch (e) { text += `\n\n(Image generation failed: ${e.message})`; }
   }
   const files = ['builder', 'developer', 'ecommerce_manager', 'designer'].includes(agent.role) ? sites.ingest(store, text) : []; // real files go to the site folder
+  try { text = (await require('./company/bridge').runAgentTools(store, agent, text)).text; } catch (e) { text += `\n\n(Company tools could not run: ${e.message})`; }
   const o = addOutbox(store, { title: name, content: text, fromRoom: agent.name, meta: { agentId, taskId: taskId || null, handoff: rec.entry.text, loop: { checks: rounds.length, revisions: rounds.length - 1, passed: accepted && rounds[rounds.length - 1].pass, by: rounds[rounds.length - 1].by }, ...(images.length ? { images: images.map((i) => ({ name: i.name, url: `/sites/${store.id || store.defaultId}/${i.name}` })) } : {}), ...(files.length ? { files, preview: `/sites/${store.id || store.defaultId}/` } : {}) } });
   store.change('state');
   return { text, outboxId: o.id, handoff: rec.entry.text, revisions: rounds.length - 1 };

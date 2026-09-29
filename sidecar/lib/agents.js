@@ -52,6 +52,7 @@ function createAgent(state, p) {
   const role = ROLES[roleOf(p.role)] ? roleOf(p.role) : 'custom';
   const isFirst = Object.keys(state.agents).length === 0;
   if (role === 'director') assert(isFirst || p._bootstrap, 'There is only one Director.');
+  if (role === 'ceo') assert(!Object.values(state.agents).some((a) => a.role === 'ceo'), 'There is only one CEO per world.');
   const name = String(p.name || ROLES[role].label).trim().slice(0, 24) || ROLES[role].label;
   const agent = {
     id: id('agent'), name, role,
