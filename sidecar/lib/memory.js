@@ -13,7 +13,7 @@ function ensure(world) {
   if (!world.memory || typeof world.memory !== 'object') world.memory = {};
   const m = world.memory;
   m.brief = m.brief || ''; m.decisions = Array.isArray(m.decisions) ? m.decisions : []; m.ownerNotes = Array.isArray(m.ownerNotes) ? m.ownerNotes : [];
-  m.handoffs = Array.isArray(m.handoffs) ? m.handoffs : []; m.spendPlan = m.spendPlan || null; m.synced = Array.isArray(m.synced) ? m.synced : [];
+  m.lessons = Array.isArray(m.lessons) ? m.lessons : []; m.handoffs = Array.isArray(m.handoffs) ? m.handoffs : []; m.spendPlan = m.spendPlan || null; m.synced = Array.isArray(m.synced) ? m.synced : [];
   return m;
 }
 
@@ -39,6 +39,7 @@ function constraints(world) {
     risk > 0 ? `- Loss limit: ${money(risk)}. Nothing may be proposed that could lose more than this.` : '',
     ...notes.slice(-6).map((n) => `- Owner rule: ${clip(n, 200)}`),
     'FREE-FIRST: build and run everything for $0 wherever possible. Websites are static files on a free host (Cloudflare Pages, GitHub Pages or Netlify). Checkout is a hosted payment link or marketplace page (Stripe Payment Link, Gumroad, Etsy), which charges only when you make a sale. Sell digital or print-on-demand products so no inventory is bought. Verify current free-tier and fee terms before relying on them, and never state a price or limit you did not verify.',
+    ...(Object.values(world.connectors || {}).some((c) => c.kind === 'comfyui' && c.status !== 'unconfigured') ? ['IMAGE GENERATION: ComfyUI is connected, free and local. When an image would help (product photos, ad creatives, hero and banner images, social visuals, logos as artwork), end your reply with a fenced block labelled images containing a JSON array like [{"name":"hero","prompt":"subject, setting, style, lighting, composition"}]. At most 4 per task. The images are rendered and saved for you; never put text, real people or brand logos in a prompt.'] : []),
     'Budget rules: (1) State the exact cost of anything that costs money. (2) Everything you recommend, added to what is already committed, must fit inside the stage budget. Never propose an item priced above it. (3) If the best option is unaffordable, give the best affordable or free alternative instead and say so. (4) Try free and direct methods first; spend only to speed up something already proven.'];
   return lines.filter(Boolean).join('\n');
 }
@@ -67,6 +68,12 @@ function addDecision(world, text, by) {
   if (m.decisions.some((d) => d.text.toLowerCase().slice(0, 60) === key)) return;
   m.decisions.push({ text: t, by: by || 'Director', at: Date.now() });
   if (m.decisions.length > 14) m.decisions.splice(0, m.decisions.length - 14);
+}
+// A lesson is a short rule learned from a fix or a finished round. Every agent reads the latest ones.
+function addLesson(world, text, by) {
+  const m = ensure(world), t = clip(text, 200); if (t.length < 8) return;
+  const key = t.toLowerCase().slice(0, 50); if (m.lessons.some((l) => l.text.toLowerCase().slice(0, 50) === key)) return;
+  m.lessons.push({ text: t, by: by || 'Team', at: Date.now() }); if (m.lessons.length > 12) m.lessons.splice(0, m.lessons.length - 12);
 }
 function addOwnerNote(world, text) {
   const m = ensure(world), t = clip(text, 300); if (t.length < 3) return null;
@@ -114,6 +121,7 @@ function block(world, { local = false } = {}) {
     for (const d of m.decisions.slice().reverse()) { if (used + d.text.length > 750 * scale) break; ds.unshift(`- ${d.text}`); used += d.text.length; }
     parts.push('Decisions already made (build on them, do not reopen them):\n' + ds.join('\n'));
   }
+  if (m.lessons.length) { let used = 0; const ls = []; for (const l of m.lessons.slice().reverse()) { if (used + l.text.length > 620 * scale) break; ls.unshift(`- ${l.text}`); used += l.text.length; } parts.push('Lessons learned so far (apply them, do not repeat these mistakes):\n' + ls.join('\n')); }
   const sp = m.spendPlan;
   if (sp && sp.items.length) parts.push(`Approved spend plan (${money(sp.totalCents)} of ${money(sp.budgetCents)}): ` + sp.items.map((i) => `${i.item} ${money(i.costCents)}`).join('; ') + '. Stay inside it.');
   if (m.handoffs.length) {
@@ -127,6 +135,6 @@ function block(world, { local = false } = {}) {
   return parts.length ? 'TEAM MEMORY (shared by every agent; treat it as ground truth and stay consistent with it):\n' + parts.join('\n\n') : '';
 }
 
-const view = (world) => { const m = ensure(world); return { brief: m.brief, decisions: m.decisions.slice(-10), ownerNotes: m.ownerNotes, spendPlan: m.spendPlan, handoffs: m.handoffs.slice(-12).reverse(), budget: { availableCents: available(world), stageCents: stageBudget(world) } }; };
+const view = (world) => { const m = ensure(world); return { brief: m.brief, decisions: m.decisions.slice(-10), lessons: m.lessons.slice(-8), ownerNotes: m.ownerNotes, spendPlan: m.spendPlan, handoffs: m.handoffs.slice(-12).reverse(), budget: { availableCents: available(world), stageCents: stageBudget(world) } }; };
 
-module.exports = { ensure, constraints, block, extract, record, addDecision, addOwnerNote, setBrief, cleanSpendPlan, available, stageBudget, view };
+module.exports = { addLesson, ensure, constraints, block, extract, record, addDecision, addOwnerNote, setBrief, cleanSpendPlan, available, stageBudget, view };

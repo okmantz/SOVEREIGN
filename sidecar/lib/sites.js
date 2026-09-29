@@ -15,6 +15,8 @@ const { assert } = require('./util');
 const { HOME } = require('./store');
 
 const EXT = new Set(['html', 'css', 'js', 'json', 'txt', 'md', 'svg', 'xml', 'webmanifest', 'csv']);
+const BIN = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'webm']); // written by the sidecar itself (ComfyUI renders), never taken from an agent's text
+const isBin = (n) => BIN.has(String(n).split('.').pop().toLowerCase());
 const MAX_FILES = 24, MAX_BYTES = 400 * 1024;
 const mem = new Map(); // worldId -> Map(name -> content), used when the store does not persist (tests)
 const rootOf = (s) => s.root || s;
@@ -22,10 +24,10 @@ const idOf = (s) => s.id || s.defaultId;
 const persistent = (store) => rootOf(store).persist !== false;
 const dirOf = (wid) => path.join(HOME, 'sites', String(wid).replace(/[^\w-]/g, ''));
 
-function cleanName(raw) {
+function cleanName(raw, { bin = false } = {}) {
   let n = String(raw || '').trim().replace(/^[`'"*]+|[`'"*:]+$/g, '').replace(/^\.?\//, '').replace(/\\/g, '/');
   if (!/^[\w.\-/]+$/.test(n) || n.includes('..') || n.split('/').length > 3) return null;
-  const ext = n.split('.').pop().toLowerCase(); if (!EXT.has(ext) || n.startsWith('.')) return null;
+  const ext = n.split('.').pop().toLowerCase(); if (!(EXT.has(ext) || (bin && BIN.has(ext))) || n.startsWith('.')) return null;
   return n;
 }
 
@@ -58,10 +60,18 @@ function walk(dir, base = '') {
 }
 const names = (store) => (persistent(store) ? walk(dirOf(idOf(store))) : [...(mem.get(idOf(store)) || new Map()).keys()]).sort((a, b) => (a === 'index.html' ? -1 : b === 'index.html' ? 1 : a.localeCompare(b)));
 function read(store, name) {
-  const n = cleanName(name); if (!n) return null;
+  const n = cleanName(name, { bin: true }); if (!n) return null;
   if (!persistent(store)) return (mem.get(idOf(store)) || new Map()).get(n) || null;
   const dir = dirOf(idOf(store)), p = path.join(dir, n);
-  try { return p.startsWith(dir + path.sep) ? fs.readFileSync(p, 'utf8') : null; } catch (_) { return null; }
+  try { return p.startsWith(dir + path.sep) ? (isBin(n) ? fs.readFileSync(p) : fs.readFileSync(p, 'utf8')) : null; } catch (_) { return null; }
+}
+// A rendered image or clip from ComfyUI. Returns the site-relative name, e.g. img/hero-1.png.
+function writeBinary(store, name, buf) {
+  const n = cleanName(name, { bin: true }); assert(n && isBin(n), 'Not a media file name.'); assert(Buffer.isBuffer(buf) && buf.length && buf.length <= 25 * 1024 * 1024, 'Media is empty or over 25 MB.');
+  const wid = idOf(store);
+  if (persistent(store)) { const dir = dirOf(wid), p = path.join(dir, n); assert(p.startsWith(dir + path.sep), 'Bad path.'); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, buf); }
+  else (mem.get(wid) || mem.set(wid, new Map()).get(wid)).set(n, buf);
+  store.change('state'); return n;
 }
 
 // Save any files in a reply. Returns the file names saved (empty when the reply had none).
@@ -88,15 +98,16 @@ function products(store) {
   try { const j = JSON.parse(t), list = Array.isArray(j) ? j : Array.isArray(j.products) ? j.products : []; return list.slice(0, 60).map((p, i) => ({ id: String(p.id || p.slug || 'p' + (i + 1)).replace(/[^\w-]/g, '').slice(0, 40), name: String(p.name || p.title || 'Product').slice(0, 80), price: p.price != null ? String(p.price).slice(0, 12) : '' })); } catch (_) { return []; }
 }
 
-const MIME = { html: 'text/html; charset=utf-8', css: 'text/css', js: 'text/javascript', json: 'application/json', txt: 'text/plain; charset=utf-8', md: 'text/plain; charset=utf-8', svg: 'image/svg+xml', xml: 'application/xml', webmanifest: 'application/manifest+json', csv: 'text/csv' };
+const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', mp4: 'video/mp4', webm: 'video/webm', html: 'text/html; charset=utf-8', css: 'text/css', js: 'text/javascript', json: 'application/json', txt: 'text/plain; charset=utf-8', md: 'text/plain; charset=utf-8', svg: 'image/svg+xml', xml: 'application/xml', webmanifest: 'application/manifest+json', csv: 'text/csv' };
 const mime = (n) => MIME[n.split('.').pop().toLowerCase()] || 'text/plain';
 
 // What the Builder sees about the current site, so a second pass improves the site instead of starting over.
 function context(store) {
   const ns = names(store); if (!ns.length) return '';
   const cat = read(store, 'products.json'), idx = read(store, 'index.html');
-  return [`Files already in the site: ${ns.join(', ')}.`, cat ? `products.json (the catalog; use these exact ids):\n${cat.slice(0, 2500)}` : '', idx && !cat ? `index.html so far (first 1200 chars):\n${idx.slice(0, 1200)}` : ''].filter(Boolean).join('\n');
+  const media = ns.filter(isBin);
+  return [`Files already in the site: ${ns.join(', ')}.`, media.length ? `Generated images you may use with <img src="..."> (relative paths, already in the site): ${media.join(', ')}.` : '', cat ? `products.json (the catalog; use these exact ids):\n${cat.slice(0, 2500)}` : '', idx && !cat ? `index.html so far (first 1200 chars):\n${idx.slice(0, 1200)}` : ''].filter(Boolean).join('\n');
 }
-const view = (store) => { const ns = names(store); return ns.length ? { files: ns, preview: `/sites/${idOf(store)}/`, products: products(store), links: links(store), folder: persistent(store) ? dirOf(idOf(store)) : null } : null; };
+const view = (store) => { const ns = names(store); return ns.length ? { files: ns.filter((n) => !isBin(n)), images: ns.filter(isBin), preview: `/sites/${idOf(store)}/`, products: products(store), links: links(store), folder: persistent(store) ? dirOf(idOf(store)) : null } : null; };
 
-module.exports = { extract, ingest, names, read, setLinks, links, products, context, view, mime, cleanName };
+module.exports = { writeBinary, isBin, extract, ingest, names, read, setLinks, links, products, context, view, mime, cleanName };

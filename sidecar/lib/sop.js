@@ -8,6 +8,7 @@ const jobs = require('./jobs');
 const strategy = require('./strategy');
 const memory = require('./memory');
 const station = require('./station');
+const loop = require('./loop');
 
 const clip = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);
 const label = (world, ref) => ref === 'inbox' ? 'Inbox' : ref === 'outbox' ? 'Outbox' : ref.startsWith('room:') ? (world.rooms[ref.slice(5)] || {}).name : (world.connectors[ref.slice(10)] || {}).name;
@@ -77,7 +78,8 @@ function build(world, version) {
     '- Every venture has a loss limit. Reaching it stops the venture automatically; no agent gets a vote.',
     '- Nothing scales until verified profit shows it works. Reinvest only from verified profit, in small steps.',
     '- The Critic reviews plans before money is spent; a REJECT or REVISE verdict is recorded in the team memory.', '');
-  L.push('## 9. When the team comes to you', '- A step only you can do (marked YOU above).', '- A missing connection or key.', '- An approval for anything outbound.', '- A task that failed twice.');
+  L.push('## 9. The autonomous loop', 'Goal → Plan → Execute → Evaluate → Learn → Repeat. Agents do not stop after one answer.', '- Plan: the Director sets milestones and briefs the team.', '- Execute: agents work in parallel.', '- Evaluate: every result is checked (budget, required files, quality) before it is accepted; failures are revised.', '- Learn: fixes become lessons in the shared team memory; each round ends with the Director writing down what to change.', '- Repeat: the next round starts until the goal is reached.', '', 'It stops only when:', ...loop.conditions(world).map((c) => '- ' + c.text), '');
+  L.push('## 10. When the team comes to you', '- A step only you can do (marked YOU above).', '- A missing connection or key.', '- An approval for anything outbound.', '- A task that failed twice.');
   return L.filter((x) => x !== undefined).join('\n');
 }
 

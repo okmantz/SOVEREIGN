@@ -8,6 +8,8 @@ const integrations = require('./integrations');
 const jobs = require('./jobs');
 const memory = require('./memory');
 const sites = require('./sites');
+const comfy = require('./comfy');
+const loop = require('./loop');
 const activity = require('./activity');
 const { roleOf } = require('./roles');
 
@@ -89,18 +91,34 @@ function addOutbox(store, item) {
 
 // One unit of job work: builds the prompt from the agent's coded job, runs it, files the result in the Outbox, and leaves a
 // handoff in the team memory so the next agent builds on it. Job tasks are stateless: they carry their own context.
-async function assign(store, { agentId, taskId, instructions, title, context, maxTokens, taskLabel, refId }) {
+async function assign(store, { agentId, taskId, instructions, title, context, maxTokens, taskLabel, refId, light }) {
   const agent = store.state.agents[agentId]; assert(agent, 'Agent not found', 404);
-  const sp = speedOf(store.state), t = jobs.spec(agent.role).tasks.find((x) => x.id === taskId);
-  const prompt = jobs.taskPrompt(agent, { taskId, instructions, context: { words: sp.words, ...(context || {}) } });
-  const raw = await runAgent(store, agentId, prompt, { maxTokens: maxTokens || sp.tokens, stateless: true, title: taskLabel || (t && t.label) || 'Working on a task' });
+  const sp = speedOf(store.state), t = jobs.spec(agent.role).tasks.find((x) => x.id === taskId), label = taskLabel || (t && t.label) || 'Working on a task', cfg = loop.config(store.state);
+  const prompt = jobs.taskPrompt(agent, { taskId, instructions, context: { words: sp.words, ...(context || {}) } }), tokens = maxTokens || sp.tokens;
+  // Execute
+  let raw = await runAgent(store, agentId, prompt, { maxTokens: tokens, stateless: true, title: label });
+  // Evaluate → revise → Learn. It repeats until the result passes or the revision limit is reached.
+  const rounds = []; let accepted = true;
+  for (let i = 0; ; i++) {
+    const v = await loop.evaluate(store, { agent, spec: jobs.spec(agent.role), taskId, label, text: raw, light });
+    rounds.push(v); if (v.pass) break;
+    if (i >= cfg.maxRevisions) { accepted = false; break; }
+    try { raw = await runAgent(store, agentId, loop.revisionPrompt(prompt, raw, v.gaps), { maxTokens: tokens, stateless: true, title: `Revising: ${label}` }); }
+    catch (e) { if (e.status === 402 || e.status === 502) throw e; accepted = false; break; } // a failed revision keeps the earlier answer
+  }
+  loop.learn(store.state, { agent, label, rounds, accepted });
   const name = title || `${agent.name}: ${t ? t.label : 'task'}`;
-  const rec = memory.record(store.state, { refId: refId || null, agentName: agent.name, role: agent.role, title: taskLabel || (t && t.label) || name, text: raw });
-  const text = rec.clean || raw;
+  const rec = memory.record(store.state, { refId: refId || null, agentName: agent.name, role: agent.role, title: label, text: raw });
+  let text = rec.clean || raw, images = [];
+  const open = accepted ? [] : (rounds[rounds.length - 1].gaps || []);
+  if (open.length) text += `\n\nOpen issues after ${cfg.maxRevisions} revision${cfg.maxRevisions === 1 ? '' : 's'}: ${open.join(' ')}`;
+  if (comfy.available(store.state) && comfy.parseBlock(text).items.length) { // ComfyUI is connected and the agent asked for pictures
+    try { const r = await activity.track(store, agentId, `Rendering images: ${label}`, () => comfy.fromReply(store, text)); text = r.text; images = r.images; } catch (e) { text += `\n\n(Image generation failed: ${e.message})`; }
+  }
   const files = ['builder', 'developer', 'ecommerce_manager', 'designer'].includes(agent.role) ? sites.ingest(store, text) : []; // real files go to the site folder
-  const o = addOutbox(store, { title: name, content: text, fromRoom: agent.name, meta: { agentId, taskId: taskId || null, handoff: rec.entry.text, ...(files.length ? { files, preview: `/sites/${store.id || store.defaultId}/` } : {}) } });
+  const o = addOutbox(store, { title: name, content: text, fromRoom: agent.name, meta: { agentId, taskId: taskId || null, handoff: rec.entry.text, loop: { checks: rounds.length, revisions: rounds.length - 1, passed: accepted && rounds[rounds.length - 1].pass, by: rounds[rounds.length - 1].by }, ...(images.length ? { images: images.map((i) => ({ name: i.name, url: `/sites/${store.id || store.defaultId}/${i.name}` })) } : {}), ...(files.length ? { files, preview: `/sites/${store.id || store.defaultId}/` } : {}) } });
   store.change('state');
-  return { text, outboxId: o.id, handoff: rec.entry.text };
+  return { text, outboxId: o.id, handoff: rec.entry.text, revisions: rounds.length - 1 };
 }
 
 const seatedIn = (state, roomId) =>

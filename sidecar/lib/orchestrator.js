@@ -54,7 +54,7 @@ const EXTRAS = {
   ops: [{ task: 'weekly_ops_plan', title: 'Plan the first week', early: true }, { task: 'fulfilment_checklist', title: 'Write the delivery checklist' }],
   researcher: [{ task: 'competitor_teardown', title: 'Tear down the competition' }, { task: 'audience_profile', title: 'Profile the buyer' }],
   copywriter: [{ task: 'ad_variants', title: 'Draft hook and ad variants' }, { task: 'email_copy', title: 'Draft email copy' }],
-  designer: [{ task: 'design_brief', title: 'Write the design brief' }],
+  designer: [{ task: 'generate_visuals', title: 'Generate the brand and product images', early: true }, { task: 'design_brief', title: 'Write the design brief' }],
   lead_generator: [{ task: 'qualify_leads', title: 'Rank the leads by fit' }, { task: 'enrich_contacts', title: 'Find the best contact routes' }],
   email_marketer: [{ task: 'followups', title: 'Draft follow-up emails' }],
   sales_closer: [{ task: 'propose_times', title: 'Draft call-booking messages' }, { task: 'proposal', title: 'Draft the proposal' }],

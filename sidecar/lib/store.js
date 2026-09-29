@@ -31,6 +31,7 @@ function blankSettings() {
     budgets: { globalDailyCents: 2000, perAgentDailyCents: 500 },
     concurrency: { ollama: 2, other: 8 }, // how many agents may call the model at once
     speed: 'fast',        // fast | balanced | thorough: how long each deliverable may run
+    loop: { evaluate: 'smart', maxRevisions: 1, maxRounds: 0 }, // the autonomous task loop: how hard each result is checked, how often it is redone, optional round cap
     autoDelegate: true,   // the Director hands extra work to agents that would otherwise sit idle
     intro: true,
     ingestSecretSet: false

@@ -67,6 +67,7 @@ const CONNECTOR_KINDS = {
   sheets:   { label: 'Google Sheets',    cap: 'db.write',       mode: 'sink',   color: '#4bd37b', glyph: 'SHT' },
   woocommerce: { label: 'WooCommerce',   cap: 'shop.read',      mode: 'source', color: '#b57ad0', glyph: 'WOO' },
   gumroad:  { label: 'Gumroad',          cap: 'payments.read',  mode: 'source', color: '#ff90e8', glyph: 'GUM' },
+  comfyui:  { label: 'ComfyUI',          cap: 'fs.workspace',   mode: 'sink',   color: '#ff8a3d', glyph: 'COMF' },
   webhook:  { label: 'Webhook',          cap: 'webhook.send',   mode: 'sink',   color: '#c9ff5a', glyph: 'HOOK' },
   portal:   { label: 'World portal',     cap: 'fs.workspace',   mode: 'sink',   color: '#ffffff', glyph: 'GATE' },
   web:      { label: 'Web',              cap: 'web.fetch',      mode: 'stub',   color: '#22e5ff', glyph: 'WEB' },

@@ -14,6 +14,7 @@ const memory = require('./memory');
 const orchestrator = require('./orchestrator');
 const sop = require('./sop');
 const ledger = require('./ledger');
+const loop = require('./loop');
 const providers = require('./providers');
 const guardrails = require('./guardrails');
 const { money } = require('./util');
@@ -186,7 +187,7 @@ async function execute(store, ref, agent) {
   let previous = ref.extra ? orchestrator.recentInputs(rm) : orchestrator.inputsFor(rm, ms, t);
   if (['builder', 'ecommerce_manager', 'developer'].includes(agent.role)) { const sc = require('./sites').context(store); if (sc) previous = (previous ? previous + '\n\n' : '') + sc; }
   const r = await runner.assign(store, { agentId: agent.id, refId: t.id, taskId: t.task || undefined, instructions: instructions.trim(), title: `${ms.title} · ${t.title}`, taskLabel: t.title,
-    context: { goal: rm.goal, milestone: ms.title, previous, words: sp.words }, maxTokens: sp.tokens });
+    context: { goal: rm.goal, milestone: ms.title, previous, words: sp.words }, maxTokens: sp.tokens, light: !!ref.extra });
   const after = locate(store, t.id); if (after) { after.t.result = r.text.slice(0, 1000); after.t.outboxId = r.outboxId; after.t.handoff = r.handoff; }
   if (target) await runner.sendToConnector(store, target, r.text, { soft: true });
 }
@@ -209,7 +210,7 @@ function launch(store, ref, agent) {
       h.t.error = e.message; h.t.attempts = (h.t.attempts || 0) + 1;
       if (e.status === 402 || e.status === 502) { // the model is down or a budget is hit: not the task's fault
         h.t.status = 'todo'; h.t.attempts -= 1;
-        if (!rm2.paused) { rm2.paused = true; rm2.pauseKind = e.status === 402 ? 'budget' : 'model'; rm2.resumeAt = Date.now() + (e.status === 402 ? 10 * 60000 : 90000); rm2.pauseReason = e.message; say(store, `I paused the plan: ${e.message}. I will try again on my own${e.status === 402 ? ' once the budget allows' : ' shortly'}.`); }
+        if (!rm2.paused) { rm2.paused = true; rm2.pauseKind = e.status === 402 ? 'budget' : 'model'; loop.stop(store.state, e.status === 402 ? 'Daily model budget reached: paused, resumes on its own' : 'The model could not be reached: paused, retrying shortly', e.status === 402 ? 'budget' : 'model'); rm2.resumeAt = Date.now() + (e.status === 402 ? 10 * 60000 : 90000); rm2.pauseReason = e.message; say(store, `I paused the plan: ${e.message}. I will try again on my own${e.status === 402 ? ' once the budget allows' : ' shortly'}.`); }
       } else h.t.status = h.t.attempts >= (h.extra ? 1 : 2) ? 'failed' : 'todo';
     } finally { f.delete(t.id); store.change('state'); }
   })();
@@ -359,6 +360,7 @@ function requeueForce(store, c) { const rm = store.state.roadmap; if (!rm) retur
 function achieve(store) {
   const w = store.state, rm = w.roadmap, p = ledger.progress(w);
   rm.status = 'achieved'; rm.paused = false; w.journey.achievedAt = Date.now(); rm.decision = { action: 'goal', reason: `Verified net profit is ${money(p.netCents)}, which reaches the ${money(p.targetCents)} target.` };
+  loop.stop(w, 'Goal reached', 'goal');
   say(store, `Goal reached. ${rm.decision.reason} The team is standing down. You can raise the target in Edit goal and I will carry on from here.`);
   store.change('state');
 }
@@ -378,18 +380,23 @@ async function nextCycle(store) {
   archive(w);
   const offline = providers.isOffline(store), auto = w.settings.autoContinue !== false;
   if (offline || !auto) { // the offline demo model cannot earn anything, so looping would only spin
-    rm.status = 'done'; say(store, `Every milestone is complete.${rm.decision ? ' ' + rm.decision.reason : ''} ${offline ? 'You are on the offline demo model, so I stop here. Connect a real model and I keep going until the goal is met.' : 'Auto-continue is off. Press "Plan the next phase" to carry on.'}`); store.change('state'); return;
+    rm.status = 'done'; loop.stop(w, offline ? 'Offline demo model: it cannot earn, so the loop stops after one round' : 'Auto-continue is off', 'setting'); say(store, `Every milestone is complete.${rm.decision ? ' ' + rm.decision.reason : ''} ${offline ? 'You are on the offline demo model, so I stop here. Connect a real model and I keep going until the goal is met.' : 'Auto-continue is off. Press "Plan the next phase" to carry on.'}`); store.change('state'); return;
   }
   const real = rm.milestones.flatMap((m) => m.tasks).filter((t) => t.status === 'done' && t.owner !== 'human').length;
   j.stall = real ? 0 : (j.stall || 0) + 1;
   if (j.stall >= 2) { // two rounds with nothing finished means the team is stuck on something only the owner can fix
+    loop.stop(w, 'Two rounds finished nothing: it needs something from you', 'owner');
     rm.status = 'done'; rm.paused = true; rm.pauseKind = 'owner'; rm.pauseReason = 'The last two rounds finished no work. Something the team needs (a connection, a key, a step of yours) is missing. Fix it and press Resume.'; say(store, `I paused: ${rm.pauseReason}`); store.change('state'); return;
   }
+  const cap = loop.config(w).maxRounds;
+  if (cap > 0 && (j.cycle || 0) + 1 >= cap) { rm.status = 'done'; loop.stop(w, `Your cap of ${cap} round${cap === 1 ? '' : 's'} was reached`, 'cap'); say(store, `I have run the ${cap} round${cap === 1 ? '' : 's'} you allowed, so I stop here. Raise the cap in Settings and press Plan the next phase to carry on.`); store.change('state'); return; }
   const d = rm.decision || strategy.decision(w), up = d && d.action === 'advance';
   say(store, `${d ? d.reason : 'The goal is not reached yet.'} ${up ? 'Moving up a stage.' : 'Starting another round.'} I keep the team working until the goal is met.`);
   rm.status = 'cycling'; j.busy = 'cycle'; store.change('state');
   await sleepMs(250); // a beat between rounds keeps a very fast model from churning
   try {
+    const learned = await loop.reflect(store, { decision: d, round: (j.cycle || 0) + 1 }).catch(() => []); // Learn: what to do differently next round
+    if (learned.length) say(store, `What I learned: ${learned.join(' ')}`);
     if (up) strategy.advance(w);
     j.cycle = (j.cycle || 0) + 1;
     ensureVenture(store);
@@ -407,8 +414,8 @@ async function nextCycle(store) {
   } finally { j.busy = null; store.change('state'); }
 }
 
-function pause(store) { const rm = store.state.roadmap; assert(rm && rm.status === 'running', 'Nothing is running.'); rm.paused = true; rm.pauseKind = 'owner'; rm.pauseReason = 'Paused by you.'; store.change('state'); }
-function resume(store) { const rm = store.state.roadmap; assert(rm && rm.status === 'running', 'Nothing to resume.'); rm.paused = false; rm.pauseReason = null; rm.pauseKind = null; store.state.journey.stall = 0; for (const x of tasksOf(rm)) if (x.t.status === 'failed' && x.t.attempts >= 2 && !x.t.error) x.t.attempts = 0; store.change('state'); kick(store); }
+function pause(store) { const rm = store.state.roadmap; assert(rm && rm.status === 'running', 'Nothing is running.'); loop.stop(store.state, 'Paused by you', 'owner'); rm.paused = true; rm.pauseKind = 'owner'; rm.pauseReason = 'Paused by you.'; store.change('state'); }
+function resume(store) { const rm = store.state.roadmap; assert(rm && rm.status === 'running', 'Nothing to resume.'); rm.paused = false; rm.pauseReason = null; rm.pauseKind = null; store.state.loopStop = null; store.state.journey.stall = 0; for (const x of tasksOf(rm)) if (x.t.status === 'failed' && x.t.attempts >= 2 && !x.t.error) x.t.attempts = 0; store.change('state'); kick(store); }
 function retryTask(store, taskId) { const h = locate(store, taskId); assert(h, 'Task not found', 404); h.t.status = 'todo'; h.t.attempts = 0; h.t.error = null; store.state.roadmap.paused = false; store.change('state'); kick(store); }
 function completeTask(store, taskId) { const h = locate(store, taskId); assert(h && h.t.owner === 'human', 'Only your own steps can be marked done.'); h.t.status = 'done'; h.t.finishedAt = Date.now(); store.change('state'); kick(store); }
 function skipTask(store, taskId) { const h = locate(store, taskId); assert(h, 'Task not found', 404); h.t.status = 'skipped'; h.t.reason = 'Skipped by you.'; store.change('state'); kick(store); }
@@ -439,7 +446,7 @@ function view(world) {
   const j = world.journey, rm = world.roadmap;
   const out = { stage: j.stage, busy: j.busy, notice: j.notice, path: j.path || null, pathLabel: j.pathLabel || null, adapted: !!j.adapted,
     milestones: (j.milestones || []).map((m) => ({ id: m.id, key: m.key, title: m.title, why: m.why, days: m.days, tasks: m.tasks.length })), roadmap: rm, setup: null, progress: null, needsYou: [],
-    strategy: strategy.view(world), memory: memory.view(world), cycles: (world.cycles || []).slice(-8).reverse(), achieved: !!(rm && rm.status === 'achieved'), decision: rm ? rm.decision || null : null, cycle: j.cycle || 0,
+    strategy: strategy.view(world), memory: memory.view(world), loop: loop.view(world), cycles: (world.cycles || []).slice(-8).reverse(), achieved: !!(rm && rm.status === 'achieved'), decision: rm ? rm.decision || null : null, cycle: j.cycle || 0,
     extras: rm ? (rm.extras || []).slice(-12).reverse().map((x) => ({ id: x.id, title: x.title, role: x.role, status: x.status, agentName: x.agentName || null, startedAt: x.startedAt || null })) : [] };
   if (rm) {
     const all = tasksOf(rm), done = all.filter((x) => ['done', 'skipped'].includes(x.t.status)).length;
