@@ -47,7 +47,7 @@ Agents come in 19 roles and 17 character presets you can fine-tune head to toe. 
 
 ```
 git clone <your repo>
-cd sovereign
+cd SOVEREIGN
 npm start          # Node 18+, no install step, zero dependencies
 ```
 
