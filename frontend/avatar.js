@@ -1,5 +1,5 @@
-// Procedural pixel characters. 16x24 grid (+1px padding for the outline), built from layered parts:
-// outfit, head, hair, facial hair, eyewear, headwear, accessory. No image assets.
+// Procedural characters. 16x24 grid (+1px padding for the outline), built from layered parts:
+// outfit, head, hair, facial hair, eyewear, headwear, accessory. No image assets. Sprites are smoothed with EPX upscaling.
 (function () {
   'use strict';
   const W = 18, H = 26, OUTLINE = '#02100a';
@@ -132,22 +132,40 @@
     return out;
   }
 
+  // Smoothing: EPX (Scale2x-family) pixel-art upscaling applied twice. It rounds diagonals and curves on the sprite grid
+  // without blurring flat colour, giving a 4x sprite that is then drawn with high-quality filtering.
+  function epx(g, w, h) {
+    const o = new Array(w * 2 * h * 2), at = (x, y) => (x < 0 || y < 0 || x >= w || y >= h ? null : g[y * w + x]);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const P = g[y * w + x], A = at(x, y - 1), B = at(x + 1, y), C = at(x - 1, y), D = at(x, y + 1);
+      let p1 = P, p2 = P, p3 = P, p4 = P;
+      if (C === A && C !== D && A !== B) p1 = A;
+      if (A === B && A !== C && B !== D) p2 = B;
+      if (D === C && D !== B && C !== A) p3 = C;
+      if (B === D && B !== A && D !== C) p4 = D;
+      const i = (y * 2) * (w * 2) + x * 2; o[i] = p1; o[i + 1] = p2; o[i + w * 2] = p3; o[i + w * 2 + 1] = p4;
+    }
+    return o;
+  }
+  const SS = 4; // sprite is stored at 4x
   const cache = new Map();
   function sprite(av, frame) {
     const key = JSON.stringify(av) + '|' + frame;
     let c = cache.get(key);
     if (!c) {
-      const buf = build(av, frame); c = document.createElement('canvas'); c.width = W; c.height = H;
-      const x = c.getContext('2d'), id = x.createImageData(W, H);
-      buf.forEach((col, i) => { if (!col) return; const [r, g, b] = rgb(col); id.data.set([r, g, b, 255], i * 4); });
+      let g = build(av, frame), w = W, h = H;
+      g = epx(g, w, h); w *= 2; h *= 2; g = epx(g, w, h); w *= 2; h *= 2;
+      c = document.createElement('canvas'); c.width = w; c.height = h;
+      const x = c.getContext('2d'), id = x.createImageData(w, h);
+      g.forEach((col, i) => { if (!col) return; const [r, gg, b] = rgb(col); id.data.set([r, gg, b, 255], i * 4); });
       x.putImageData(id, 0, 0);
-      if (cache.size > 400) cache.clear();
+      if (cache.size > 300) cache.clear();
       cache.set(key, c);
     }
     return c;
   }
   // x,y = top-left of the padded sprite box. Frame: 0 idle, 1 typing, 2 blink.
-  function draw(ctx, av, x, y, scale, frame) { ctx.imageSmoothingEnabled = false; ctx.drawImage(sprite(av, frame || 0), Math.round(x), Math.round(y), W * scale, H * scale); }
+  function draw(ctx, av, x, y, scale, frame) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(sprite(av, frame || 0), Math.round(x), Math.round(y), W * scale, H * scale); }
   function canvas(av, scale, frame) { const c = document.createElement('canvas'); c.width = W * scale; c.height = H * scale; c.className = 'sprite'; draw(c.getContext('2d'), av, 0, 0, scale, frame); return c; }
   // Idle agents blink now and then; busy agents type.
   function frameFor(id, now, busy) {

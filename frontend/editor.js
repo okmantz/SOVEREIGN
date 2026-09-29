@@ -8,8 +8,9 @@ const swatchRow = (list, current, onpick) => h('div', { class: 'swatches' }, lis
 SOV.openAgentEditor = (agent, opts = {}) => {
   const S = SOV.S, A = S.avatars, isDir = !!agent && agent.role === 'director';
   const presetOf = (role) => ({ ...A.presets[S.roles[role].preset].cfg, preset: S.roles[role].preset });
-  const d = agent ? { name: agent.name, role: agent.role, persona: agent.persona, model: agent.model, deskId: agent.deskId || '', avatar: { ...agent.avatar } }
-    : { name: '', role: 'researcher', persona: S.roles.researcher.persona, model: null, deskId: opts.deskId || '', avatar: presetOf('researcher') };
+  const defaultsFor = (role) => Object.fromEntries((S.jobs[role] ? S.jobs[role].settings : []).map((f) => [f.key, f.default]));
+  const d = agent ? { name: agent.name, role: agent.role, persona: agent.persona, model: agent.model, deskId: agent.deskId || '', avatar: { ...agent.avatar }, settings: { ...defaultsFor(agent.role), ...(agent.settings || {}) } }
+    : { name: '', role: 'researcher', persona: S.roles.researcher.persona, model: null, deskId: opts.deskId || '', avatar: presetOf('researcher'), settings: defaultsFor('researcher') };
   let touchedLook = !!agent, frame = 0;
   const preview = h('div', { class: 'preview-box' }), body = h('div', {});
   const paintPreview = () => preview.replaceChildren(window.Avatar.canvas(d.avatar, 8, frame));
@@ -21,13 +22,27 @@ SOV.openAgentEditor = (agent, opts = {}) => {
     A.options[key].filter((o) => o !== 'crown' || isDir).map((o) => h('option', { value: o }, cap(o)))));
   const groups = {}; for (const [k, r] of Object.entries(S.roles)) if (k !== 'director' || isDir) (groups[r.group] = groups[r.group] || []).push([k, r.label]);
 
+  function jobSection() {
+    const job = S.jobs[d.role]; if (!job) return null;
+    const field = (f) => {
+      const set = (v) => { d.settings[f.key] = v; }, val = d.settings[f.key] == null ? f.default : d.settings[f.key];
+      const input = f.type === 'textarea' ? h('textarea', { rows: '2', maxlength: '1500', oninput: (e) => set(e.target.value) }, val)
+        : f.type === 'select' ? h('select', { onchange: (e) => set(e.target.value), value: val }, f.options.map((o) => h('option', { value: o }, cap(o))))
+        : f.type === 'number' ? h('input', { type: 'number', min: '0', value: val, oninput: (e) => set(e.target.value) })
+        : h('input', { type: 'text', maxlength: '300', value: val, oninput: (e) => set(e.target.value) });
+      return SOV.field(f.label, input, f.help);
+    };
+    return h('div', { class: 'card', style: 'margin-top:12px' }, h('strong', {}, 'Job: ' + S.roles[d.role].label), h('p', { class: 'muted', style: 'margin:3px 0 6px' }, job.summary),
+      h('div', { class: 'muted', style: 'font-size:12px' }, 'Does: ' + job.does.join(' · ')), h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'Hands back: ' + job.deliver.join(' · ')),
+      job.settings.length ? [h('strong', { style: 'font-size:12px' }, 'Saved settings (used every time this agent works)'), h('div', { class: 'grid2', style: 'margin-top:6px' }, job.settings.map(field))] : h('p', { class: 'muted', style: 'margin:0' }, 'This role has no settings to tune.'));
+  }
   function paint() {
     paintPreview();
     body.replaceChildren(
       h('div', { class: 'editor' },
         h('div', { class: 'stack' }, preview,
           SOV.field('Name', h('input', { type: 'text', maxlength: '24', value: d.name, placeholder: 'Agent name', oninput: (e) => { d.name = e.target.value; } })),
-          SOV.field('Role', h('select', { disabled: isDir, onchange: (e) => { const old = S.roles[d.role]; d.role = e.target.value; if (d.persona === old.persona) d.persona = S.roles[d.role].persona; if (!touchedLook) d.avatar = presetOf(d.role); paint(); }, value: d.role },
+          SOV.field('Role', h('select', { disabled: isDir, onchange: (e) => { const old = S.roles[d.role]; d.role = e.target.value; if (d.persona === old.persona) d.persona = S.roles[d.role].persona; d.settings = defaultsFor(d.role); if (!touchedLook) d.avatar = presetOf(d.role); paint(); }, value: d.role },
             Object.entries(groups).map(([g, list]) => h('optgroup', { label: g }, list.map(([k, l]) => h('option', { value: k }, l)))))),
           SOV.field('Desk', h('select', { onchange: (e) => { d.deskId = e.target.value; }, value: d.deskId },
             h('option', { value: '' }, agent ? 'Keep current desk' : roomHint ? `New desk in ${roomHint.name}` : 'New desk (automatic)'), freeDesks.map((x) => h('option', { value: x.id }, `${S.rooms[x.roomId].name} · empty desk`))),
@@ -45,6 +60,7 @@ SOV.openAgentEditor = (agent, opts = {}) => {
             h('div', {}, h('div', { class: 'muted' }, 'Outfit'), swatchRow(A.palette.outfit, d.avatar.outfitColor, (c) => set('outfitColor', c))),
             h('div', {}, h('div', { class: 'muted' }, 'Accent'), swatchRow(A.palette.accent, d.avatar.accent, (c) => set('accent', c))),
             h('div', {}, h('div', { class: 'muted' }, 'Hat and helmet'), swatchRow(A.palette.outfit, d.avatar.hatColor, (c) => set('hatColor', c)))))),
+      jobSection(),
       h('div', { style: 'margin-top:12px' }, SOV.field('Persona and instructions', h('textarea', { rows: '3', oninput: (e) => { d.persona = e.target.value; } }, d.persona))),
       isDir ? h('p', { class: 'muted' }, 'The Director is the first agent. You can restyle them, but not remove them or change their role. They alone can edit the station.') : null,
       h('div', { class: 'row', style: 'margin-top:12px' },
@@ -56,7 +72,7 @@ SOV.openAgentEditor = (agent, opts = {}) => {
         h('button', { class: 'btn', onclick: SOV.closeModal }, 'Cancel')));
   }
   async function save() {
-    const payload = { name: d.name || S.roles[d.role].label, role: d.role, persona: d.persona, model: d.model, avatar: d.avatar };
+    const payload = { name: d.name || S.roles[d.role].label, role: d.role, persona: d.persona, model: d.model, avatar: d.avatar, settings: d.settings };
     try {
       if (agent) { if (d.deskId) payload.deskId = d.deskId; await api('PATCH', '/agents/' + agent.id, payload); }
       else { if (d.deskId) payload.deskId = d.deskId; else if (opts.roomId) payload.roomId = opts.roomId; const r = await api('POST', '/agents', payload); SOV.chatAgent = r.agent.id; SOV.sel = { type: 'agent', id: r.agent.id }; }
@@ -66,18 +82,53 @@ SOV.openAgentEditor = (agent, opts = {}) => {
   paint(); SOV.modal(h('div', {}, h('h2', {}, agent ? 'Edit ' + agent.name : 'New agent'), body), { wide: true, onClose: () => clearInterval(tick) });
 };
 
-SOV.openMission = () => {
-  const m = SOV.S.mission || {}, ids = {};
-  const num = (k, label, v) => SOV.field(label, ids[k] = h('input', { type: 'number', min: '0', step: '1', value: v }));
-  SOV.modal(h('div', { class: 'stack' }, h('h2', {}, SOV.S.mission ? 'Edit your mission' : 'Set your mission'),
-    SOV.field('Mission name', ids.name = h('input', { type: 'text', value: m.name || 'First $10k', maxlength: '80' })),
-    h('div', { class: 'row' }, num('target', 'Verified profit target (USD)', m.targetCents ? m.targetCents / 100 : 10000), num('capital', 'Starting capital (USD)', m.capitalCents ? m.capitalCents / 100 : 500)),
-    num('risk', 'Most you will lose before everything stops (USD)', m.riskCents ? m.riskCents / 100 : 500),
-    h('p', { class: 'muted', style: 'margin:0' }, 'Only revenue confirmed by a connected payment source counts. The Director proposes; you approve.'),
-    h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: async () => {
-      try { await api('POST', '/mission', { name: ids.name.value, targetCents: Math.round(ids.target.value * 100), capitalCents: Math.round(ids.capital.value * 100), riskCents: Math.round(ids.risk.value * 100) });
-        SOV.closeModal(); SOV.chatAgent = Object.values(SOV.S.agents).find((a) => a.role === 'director').id; toast('The Director is drafting a plan. It will appear in the chat.'); } catch (_) {} } }, SOV.S.mission ? 'Update mission' : 'Wake the Director'),
-      h('button', { class: 'btn', onclick: SOV.closeModal }, 'Cancel'))));
+// The goal prompt. Saving closes it for good; the Director takes over from here.
+SOV.openGoal = () => {
+  const S = SOV.S, m = S.mission || {}, editing = !!S.mission, ids = {};
+  const num = (k, label, v, help) => SOV.field(label, ids[k] = h('input', { type: 'number', min: '0', step: '1', value: v }), help);
+  const go = async () => {
+    if (ids.name.value.trim().length < 4) return toast('Describe your goal in a sentence.', 'error');
+    try {
+      await api('POST', '/goal', { name: ids.name.value.trim(), targetCents: Math.round(ids.target.value * 100), capitalCents: Math.round(ids.capital.value * 100), riskCents: Math.round(ids.risk.value * 100) });
+      SOV.closeModal(); SOV.goalPrompted[S.world.id] = true;
+      if (!editing) { SOV.chatAgent = Object.values(SOV.S.agents).find((a) => a.role === 'director').id; SOV.openDrawer('journey'); toast('Goal saved. The Director is drafting your milestones.'); } else toast('Goal updated. Your plan is unchanged.');
+    } catch (_) { /* toast shown */ }
+  };
+  SOV.modal(h('div', { class: 'stack' }, h('img', { src: 'assets/wordmark.png', alt: 'Sovereign', style: 'height:16px;width:auto;align-self:flex-start;margin-bottom:2px' }),
+    h('h2', { style: 'margin:0' }, editing ? 'Edit your goal' : 'What is your goal?'),
+    SOV.field('In one sentence', ids.name = h('textarea', { rows: '2', maxlength: '160', placeholder: 'e.g. Make $5,000 a month selling digital planners on Etsy', 'aria-label': 'Your goal' }, m.name || ''), 'Be specific about what you sell or who you serve. The Director builds the plan from this.'),
+    h('div', { class: 'row' }, num('target', 'Verified profit target (USD)', m.targetCents ? m.targetCents / 100 : 5000), num('capital', 'Starting capital (USD)', m.capitalCents != null ? m.capitalCents / 100 : 500)),
+    num('risk', 'Most you will lose before everything stops (USD)', m.riskCents != null ? m.riskCents / 100 : 500),
+    h('p', { class: 'muted', style: 'margin:0' }, 'Only revenue confirmed by a connected payment source counts. You approve the plan; the Director does the work.'),
+    h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: go }, editing ? 'Save' : 'Save goal and start'), editing ? h('button', { class: 'btn', onclick: SOV.closeModal }, 'Cancel') : null)),
+    { onClose: () => {} });
+  ids.name.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); } });
+};
+SOV.openMission = SOV.openGoal;
+
+SOV.openWorldCreate = () => {
+  const S = SOV.S; let kind = 'general'; const name = h('input', { type: 'text', maxlength: '32', placeholder: 'e.g. Etsy store', 'aria-label': 'World name' }), focus = h('textarea', { rows: '2', maxlength: '300', 'aria-label': 'What this world is for' });
+  const info = h('p', { class: 'muted', style: 'margin:0' }, 'A blank station with its own Director.');
+  const sel = h('select', { 'aria-label': 'World type', onchange: (e) => { kind = e.target.value; focus.value = S.worldKinds[kind].focus; info.textContent = S.worldKinds[kind].focus || 'A blank station with its own Director.'; } }, Object.entries(S.worldKinds).map(([k, v]) => h('option', { value: k }, v.label)));
+  const go = async () => { try { const r = await api('POST', '/worlds', { name: name.value, kind, focus: focus.value }); SOV.closeModal(); await SOV.setWorld(r.id); SOV.drawer = 'journey'; SOV.render(); } catch (_) {} };
+  name.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  SOV.modal(h('div', { class: 'stack' }, h('h2', {}, 'New world'), SOV.field('Name', name), SOV.field('Type', sel), info, SOV.field('What this world is for (the Director reads this)', focus),
+    h('p', { class: 'muted', style: 'margin:0' }, 'It gets its own Director, goal and roadmap. Connect it to your other worlds from the Worlds panel.'),
+    h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: go }, 'Create world'), h('button', { class: 'btn', onclick: SOV.closeModal }, 'Cancel'))));
+};
+SOV.openWorldEdit = (w) => {
+  const S = SOV.S; const name = h('input', { type: 'text', maxlength: '32', value: w.name, 'aria-label': 'World name' }), focus = h('textarea', { rows: '3', maxlength: '300', 'aria-label': 'What this world is for' }, w.focus || '');
+  const go = async () => { try { await fetch('/api/worlds/' + w.id, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: name.value, focus: focus.value }) }).then(async (r) => { if (!r.ok) throw new Error((await r.json()).error); }); SOV.closeModal(); SOV.refresh(); } catch (e) { toast(e.message, 'error'); } };
+  SOV.modal(h('div', { class: 'stack' }, h('h2', {}, 'Edit world'), SOV.field('Name', name), SOV.field('What this world is for', focus), h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: go }, 'Save'), h('button', { class: 'btn', onclick: SOV.closeModal }, 'Cancel'))));
+};
+
+SOV.openTaskModal = (agent) => {
+  const S = SOV.S, job = S.jobs[agent.role]; let taskId = job.tasks[0] && job.tasks[0].id;
+  const extra = h('textarea', { rows: '3', placeholder: 'Optional. Add details, paste input, or leave blank to use the task as written.', 'aria-label': 'Extra instructions' });
+  SOV.modal(h('div', { class: 'stack' }, h('h2', {}, 'Give ' + agent.name + ' a task'), h('p', { class: 'muted', style: 'margin:0' }, job.summary),
+    SOV.field('Task', h('select', { onchange: (e) => { taskId = e.target.value || null; }, value: taskId }, job.tasks.map((t) => h('option', { value: t.id }, t.label)), h('option', { value: '' }, 'Something else (describe it below)'))), SOV.field('Details', extra),
+    h('p', { class: 'muted', style: 'margin:0' }, 'The result is filed in the Outbox. Uses your saved job settings for this agent.'),
+    h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: async () => { if (!taskId && !extra.value.trim()) return toast('Describe the task.', 'error'); try { await api('POST', `/agents/${agent.id}/task`, { taskId: taskId || undefined, instructions: extra.value }); SOV.closeModal(); toast(agent.name + ' is on it.'); } catch (_) {} } }, 'Start'), h('button', { class: 'btn', onclick: SOV.closeModal }, 'Cancel'))));
 };
 
 SOV.openRename = (type, id) => {

@@ -1,4 +1,4 @@
-// Sovereign UI core: state, canvas interaction, tool rail, the chat panel. Panels and editors live in panels.js / editor.js.
+// Sovereign UI core: state, worlds, the guide bar, canvas interaction, panel rail, floating build toolbar, chat. Panels and editors live in panels.js / editor.js.
 (() => {
 'use strict';
 const $ = (s, r = document) => r.querySelector(s);
@@ -18,10 +18,10 @@ function h(tag, props, ...kids) {
 const usd = (c) => (c < 0 ? '-' : '') + '$' + (Math.abs(c) / 100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 function toast(msg, kind) { const t = h('div', { class: kind || '' }, msg); $('#toast').append(t); setTimeout(() => t.remove(), 4200); }
 
-const SOV = window.SOV = { S: null, sel: null, tool: 'select', drawer: 'inspect', chatAgent: null, busy: new Map(), pulses: [], local: {}, h, $, usd, toast };
+const SOV = window.SOV = { S: null, sel: null, tool: 'select', drawer: 'journey', chatAgent: null, busy: new Map(), pulses: [], local: {}, stream: {}, world: null, goalPrompted: {}, introDone: false, h, $, usd, toast };
 
 async function api(method, path, body) {
-  let r; try { r = await fetch('/api' + path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }); }
+  let r; try { r = await fetch('/api' + path, { method, headers: { 'content-type': 'application/json', ...(SOV.world ? { 'x-world': SOV.world } : {}) }, body: body ? JSON.stringify(body) : undefined }); }
   catch (_) { toast('Lost contact with the Sovereign server. Is it still running?', 'error'); throw new Error('offline'); }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { toast(j.error || 'Something went wrong.', 'error'); throw new Error(j.error || 'failed'); }
@@ -32,7 +32,8 @@ SOV.api = api;
 // ---------- refresh + live events ----------
 let rt = null; function scheduleRefresh() { clearTimeout(rt); rt = setTimeout(refresh, 50); }
 async function refresh() {
-  SOV.S = await (await fetch('/api/state')).json(); window.Scene.invalidate();
+  const S = await (await fetch('/api/state', { headers: SOV.world ? { 'x-world': SOV.world } : {} })).json();
+  SOV.world = S.world.id; SOV.S = S; window.Scene.invalidate(); // the server falls back to a real world if ours was deleted
   const d = Object.values(SOV.S.agents).find((a) => a.role === 'director');
   if (!SOV.S.agents[SOV.chatAgent]) SOV.chatAgent = d && d.id;
   if (SOV.sel && ['room', 'desk', 'agent', 'hallway', 'connector'].includes(SOV.sel.type)) {
@@ -46,7 +47,9 @@ const es = new EventSource('/api/events');
 ['state', 'ledger', 'approval', 'outbox'].forEach((t) => es.addEventListener(t, scheduleRefresh));
 es.addEventListener('handoff', (e) => { const ev = JSON.parse(e.data), hw = SOV.S && SOV.S.hallways[ev.hallwayId], p = hw && window.Scene.hallPath(SOV.S, hw); if (p) SOV.pulses.push({ p, t0: performance.now(), dur: 1100 }); });
 es.addEventListener('run.start', (e) => { SOV.busy.set(JSON.parse(e.data).agentId, Date.now()); renderChat(); });
-es.addEventListener('run.done', (e) => { SOV.busy.delete(JSON.parse(e.data).agentId); scheduleRefresh(); });
+es.addEventListener('run.done', (e) => { const id = JSON.parse(e.data).agentId; SOV.busy.delete(id); delete SOV.stream[id]; scheduleRefresh(); });
+es.addEventListener('token', (e) => { const ev = JSON.parse(e.data); SOV.stream[ev.agentId] = ev.text; renderChat(); }); // live text while a local model is answering
+es.addEventListener('notice', (e) => { const ev = JSON.parse(e.data); toast(ev.text, ev.kind === 'error' ? 'error' : ''); if (ev.kind === 'ok') scheduleRefresh(); });
 
 // ---------- selection + drawer ----------
 SOV.select = (sel, openInspect = true) => {
@@ -159,20 +162,24 @@ const ICON = {
   hallway: '<circle cx="5" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><path d="M7 12h10"/>', connector: '<path d="M12 3l9 9-9 9-9-9z"/>', agent: '<circle cx="12" cy="7" r="3.5"/><path d="M5 21v-3a7 7 0 0 1 14 0v3"/>',
   inspect: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>', agents: '<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20v-2a5 5 0 0 1 10 0v2M15 15a4 4 0 0 1 6 3v2"/>',
   money: '<path d="M12 3v18M16.5 7.5C15.5 6 13.5 5.5 12 5.5c-2 0-4 1-4 3s2 2.5 4 3 4 1 4 3-2 3-4 3c-1.8 0-3.8-.6-4.8-2.2"/>', outbox: '<path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1 2h6l1-2h5"/>',
+  journey: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>', worlds: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>', integrations: '<path d="M9 3v5M15 3v5M6 8h12v4a6 6 0 0 1-12 0zM12 18v3"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'
 };
 const svg = (inner) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.innerHTML = inner; return s; };
 const TOOLS = [['select', 'Select', 'Click to inspect. Drag a room to move it, double-click to rename. Scroll to zoom, drag the floor to pan.'], ['room', 'Room', 'Drag on the floor to draw a room. Pick its type below.'],
   ['desk', 'Desk', 'Click inside a room to place a desk.'], ['hallway', 'Hallway', 'Click where work starts (room, Inbox, connector), then where it goes.'],
   ['connector', 'Connector', 'Click an empty spot to add a port to Stripe, email, Shopify and more.'], ['agent', 'Agent', 'Click a room to add an agent there, an empty desk to seat one, or an agent to edit.']];
-const PANELS = [['inspect', 'Inspect'], ['agents', 'Agents'], ['money', 'Money'], ['outbox', 'Outbox'], ['settings', 'Settings']];
+const PANELS = [['journey', 'Journey'], ['worlds', 'Worlds'], ['agents', 'Agents'], ['integrations', 'Integrations'], ['money', 'Money'], ['outbox', 'Outbox'], ['inspect', 'Inspect'], ['settings', 'Settings']];
 function renderRail() {
-  const S = SOV.S, pending = S.approvals.filter((a) => a.status === 'pending').length;
-  $('#rail').replaceChildren(
-    ...TOOLS.map(([id, name]) => h('button', { class: 'tool', type: 'button', 'aria-pressed': String(SOV.tool === id), title: name, onclick: () => { SOV.tool = id; linkFrom = null; renderAll(); } }, svg(ICON[id]), name)),
-    h('div', { class: 'rail-sep' }),
-    ...PANELS.map(([id, name]) => h('button', { class: 'tool', type: 'button', 'aria-pressed': String(SOV.drawer === id), title: name, onclick: () => { SOV.drawer = SOV.drawer === id ? null : id; renderAll(); } },
-      svg(ICON[id]), name, id === 'outbox' && S.outbox.length ? h('span', { class: 'dot' }, S.outbox.length) : null)));
+  const S = SOV.S, pending = S.approvals.filter((a) => a.status === 'pending').length, needs = S.journey.needsYou.length;
+  const badge = { journey: needs, money: 0, outbox: S.outbox.length, agents: 0, worlds: S.worlds.length > 1 ? S.worlds.length : 0 };
+  $('#rail').replaceChildren(...PANELS.map(([id, name]) => h('button', { class: 'tool', type: 'button', 'aria-pressed': String(SOV.drawer === id), title: name, onclick: () => { SOV.drawer = SOV.drawer === id ? null : id; renderAll(); } },
+    svg(ICON[id]), name, badge[id] ? h('span', { class: 'dot' }, badge[id]) : null)));
+}
+// Build tools float over the canvas so the left rail can be all panels.
+function renderToolbar() {
+  $('#toolbar').replaceChildren(...TOOLS.map(([id, name, tip]) => h('button', { class: 'tb' + (SOV.tool === id ? ' on' : ''), type: 'button', 'aria-pressed': String(SOV.tool === id), title: name + ': ' + tip,
+    onclick: () => { SOV.tool = id; linkFrom = null; renderAll(); } }, svg(ICON[id]), h('span', {}, name))));
 }
 function renderHint() {
   const el = $('#hint'), t = TOOLS.find((x) => x[0] === SOV.tool); el.replaceChildren(h('span', {}, t[2]));
@@ -188,35 +195,69 @@ function renderHint() {
   $('#view').append(box);
 })();
 
-// ---------- header + welcome ----------
-const seen = () => { try { return localStorage.getItem('sov.welcome') === '1'; } catch (_) { return false; } };
+// ---------- header, worlds, guide bar ----------
+const STEPS = [['goal', 'Goal'], ['milestones', 'Milestones'], ['roadmap', 'Roadmap'], ['setup', 'Setup'], ['run', 'Run']];
+SOV.STEPS = STEPS;
 function renderHeader() {
-  const S = SOV.S, p = S.progress, m = S.mission, mb = $('#mission-bar');
-  if (!m) mb.replaceChildren(h('span', { class: 'muted' }, 'No mission yet. Set a profit target.'));
+  const S = SOV.S, p = S.progress, m = S.mission, mb = $('#mission-bar'), w = S.world;
+  if (!m) mb.replaceChildren(h('span', { class: 'muted' }, 'No goal yet. Click to set one.'));
   else mb.replaceChildren(h('strong', {}, m.name), h('span', { class: 'bar', title: 'Verified net profit toward target' }, h('i', { style: `width:${p.pct}%` })), h('span', {}, `${usd(p.netCents)} / ${usd(p.targetCents)}`));
   $('#spend').textContent = `Model spend today ${usd(S.spentTodayCents)} of ${usd(S.settings.budgets.globalDailyCents)}`;
-  const w = $('#welcome');
-  if (!m && !seen() && !SOV.welcomeClosed) {
-    w.hidden = false;
-    const close = () => { SOV.welcomeClosed = true; try { localStorage.setItem('sov.welcome', '1'); } catch (_) {} w.hidden = true; };
-    w.replaceChildren(h('button', { class: 'x', 'aria-label': 'Dismiss', onclick: close }, '×'), h('h2', {}, 'Wake the Director'),
-      h('p', { class: 'muted', style: 'margin:0 0 10px' }, 'Give Sovereign a profit target. The Director designs your agents, rooms and hallways, then asks before anything structural or expensive.'),
-      h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => { close(); SOV.openMission(); } }, 'Set a mission'), h('button', { class: 'btn', onclick: close }, 'Build by hand')));
-  } else w.hidden = true;
+  $('#world-switch').replaceChildren(h('i', { class: 'wdot', style: `background:${w.color}` }), h('span', { class: 'wname' }, w.name), h('span', { class: 'muted' }, '▾'));
+  $('#world-switch').style.display = ''; document.title = (S.worlds.length > 1 ? w.name + ' · ' : '') + 'Sovereign';
 }
-$('#mission-bar').addEventListener('click', () => { if (!SOV.S) return; if (!SOV.S.mission) SOV.openMission(); else SOV.openDrawer('money'); });
+$('#mission-bar').addEventListener('click', () => { if (!SOV.S) return; if (!SOV.S.mission) SOV.openGoal(); else SOV.openDrawer('journey'); });
+
+function closeWorldMenu() { const m = $('#world-menu'); if (m) m.remove(); document.removeEventListener('pointerdown', outside, true); }
+function outside(e) { if (!e.target.closest('#world-menu') && !e.target.closest('#world-switch')) closeWorldMenu(); }
+$('#world-switch').addEventListener('click', () => {
+  if ($('#world-menu')) return closeWorldMenu();
+  const S = SOV.S, r = $('#world-switch').getBoundingClientRect();
+  const stageName = (s) => (STEPS.find((x) => x[0] === s) || [0, s])[1];
+  const menu = h('div', { id: 'world-menu', role: 'menu', style: `left:${r.left}px;top:${r.bottom + 6}px` },
+    ...S.worlds.map((w) => h('button', { role: 'menuitem', class: w.id === S.world.id ? 'on' : '', onclick: () => { closeWorldMenu(); if (w.id !== S.world.id) SOV.setWorld(w.id); } },
+      h('i', { class: 'wdot', style: `background:${w.color}` }), h('span', { class: 'wm-name' }, w.name), h('small', {}, `${w.agents} agent${w.agents === 1 ? '' : 's'} · ${stageName(w.stage)}`))),
+    h('hr'), h('button', { role: 'menuitem', onclick: () => { closeWorldMenu(); SOV.openWorldCreate(); } }, '+ New world'), h('button', { role: 'menuitem', onclick: () => { closeWorldMenu(); SOV.openDrawer('worlds'); } }, 'Manage worlds…'));
+  document.body.append(menu); document.addEventListener('pointerdown', outside, true);
+});
+SOV.setWorld = async (id) => {
+  SOV.world = id; try { localStorage.setItem('sov.world', id); } catch (_) {}
+  SOV.sel = null; SOV.chatAgent = null; SOV.stream = {}; SOV.busy.clear(); window.Scene.invalidate(); await refresh(); window.Scene.fit();
+};
+
+function renderGuide() {
+  const g = $('#guide'), S = SOV.S, j = S.journey, idx = STEPS.findIndex((x) => x[0] === j.stage), rm = j.roadmap, pr = j.progress;
+  let msg, cta = 'Open plan', tone = '';
+  const spin = () => h('i', { class: 'spinner', 'aria-hidden': 'true' });
+  if (j.stage === 'goal') { msg = 'Start by setting your goal. The Director plans everything else.'; cta = 'Set goal'; }
+  else if (j.stage === 'milestones') msg = j.busy ? [spin(), 'The Director is drafting milestones…'] : 'Review the milestones. Edit anything, then approve.';
+  else if (j.stage === 'roadmap') msg = j.busy ? [spin(), 'The Director is building your roadmap…'] : 'Review the roadmap and approve it to continue.';
+  else if (j.stage === 'setup') { const left = j.setup ? j.setup.requirements.filter((r) => r.blocking && r.status === 'needs_setup').length : 0; msg = left ? `Connect what the plan needs (${left} left), or skip and continue.` : 'Everything the plan needs is ready. Start the team when you are.'; cta = 'Set up'; }
+  else if (rm && rm.paused) { msg = 'Paused. ' + (rm.pauseReason || ''); cta = 'Resume'; tone = 'warn'; }
+  else if (j.needsYou.length) { msg = `${j.needsYou.length} thing${j.needsYou.length > 1 ? 's' : ''} need${j.needsYou.length > 1 ? '' : 's'} you. The team keeps going on everything else.`; cta = 'See what'; tone = 'warn'; }
+  else if (rm && rm.status === 'done') { msg = 'The roadmap is complete.'; cta = 'Plan next phase'; }
+  else msg = [spin(), `The team is working · ${pr.done} of ${pr.total} tasks done`];
+  g.hidden = false; g.className = 'guide ' + tone;
+  g.replaceChildren(h('div', { class: 'g-steps' }, STEPS.map(([id, label], i) => h('span', { class: 'g-step' + (i < idx || (id === 'run' && rm && rm.status === 'done') ? ' done' : i === idx ? ' on' : '') }, h('i', {}, i < idx ? '✓' : i + 1), label))),
+    h('div', { class: 'g-msg' }, msg), ...(j.stage === 'run' && pr ? [h('span', { class: 'bar g-bar', title: pr.pct + '%' }, h('i', { style: `width:${pr.pct}%` }))] : []),
+    h('button', { class: 'btn small primary', onclick: () => { if (j.stage === 'goal') SOV.openGoal(); else if (rm && rm.paused && j.stage === 'run') api('POST', '/journey/resume').catch(() => {}); else if (rm && rm.status === 'done') api('POST', '/journey/replan').then(() => SOV.openDrawer('journey')).catch(() => {}); else SOV.openDrawer('journey'); } }, cta));
+}
 
 // ---------- drawer ----------
-const TITLES = { inspect: 'Inspect', agents: 'Agents', money: 'Money', outbox: 'Outbox', settings: 'Settings' };
+const TITLES = { journey: 'Journey', worlds: 'Worlds', agents: 'Agents', integrations: 'Integrations', money: 'Money', outbox: 'Outbox', inspect: 'Inspect', settings: 'Settings' };
+const wide = () => { try { return localStorage.getItem('sov.wide') === '1'; } catch (_) { return false; } };
 function renderDrawer() {
   const d = $('#drawer');
   if (!SOV.drawer) { d.hidden = true; return; }
   const ae = document.activeElement;
   if (!d.hidden && ae && d.contains(ae) && /INPUT|TEXTAREA|SELECT/.test(ae.tagName)) { SOV.drawerDirty = true; return; }
-  SOV.drawerDirty = false; d.hidden = false;
+  SOV.drawerDirty = false; d.hidden = false; d.classList.toggle('wide', wide());
   const body = h('div', { class: 'drawer-body' }, SOV.panels[SOV.drawer]());
-  const top = d.querySelector('.drawer-body') ? d.querySelector('.drawer-body').scrollTop : 0;
-  d.replaceChildren(h('div', { class: 'drawer-head' }, TITLES[SOV.drawer], h('button', { 'aria-label': 'Close panel', onclick: SOV.closeDrawer }, '×')), body);
+  const shownKey = SOV.drawer + (SOV.drawer === 'journey' ? ':' + SOV.S.journey.stage : '') + ':' + SOV.S.world.id; // a new panel, stage or world starts at the top
+  const top = d.querySelector('.drawer-body') && SOV._shown === shownKey ? d.querySelector('.drawer-body').scrollTop : 0; SOV._shown = shownKey;
+  d.replaceChildren(h('div', { class: 'drawer-head' }, h('span', {}, TITLES[SOV.drawer]),
+    h('span', { class: 'dh-btns' }, h('button', { 'aria-label': wide() ? 'Make the panel narrower' : 'Make the panel wider', title: wide() ? 'Narrower' : 'Wider', onclick: () => { try { localStorage.setItem('sov.wide', wide() ? '0' : '1'); } catch (_) {} SOV.drawerDirty = false; renderDrawer(); window.Scene.invalidate(); } }, wide() ? '⇥' : '⇤'),
+      h('button', { 'aria-label': 'Close panel', onclick: SOV.closeDrawer }, '×'))), body);
   body.scrollTop = top;
 }
 $('#drawer').addEventListener('focusout', () => setTimeout(() => { if (SOV.drawerDirty) renderDrawer(); }, 200));
@@ -250,9 +291,9 @@ function renderChat() {
   const tr = (S.transcripts[a.id] || []).slice(-30); const items = tr.map((m) => h('div', { class: 'msg ' + (m.role === 'user' ? 'me' : '') }, m.content));
   for (const t of SOV.local[a.id] || []) items.push(h('div', { class: 'msg me' }, t));
   if (!items.length) items.push(h('div', { class: 'msg sys' }, a.role === 'director'
-    ? (S.mission ? 'Ask me for a plan, a new venture, or a status report. Structural changes wait for your approval.' : 'Set a mission and I will draft your agents, rooms and hallways.')
+    ? (S.mission ? 'Ask me for a status report, or tell me to do something: “Tell Quill to draft five posts.” Work starts right away. Changes to the station wait for your approval.' : 'Set your goal and I will plan everything else.')
     : `Say hello to ${a.name}. ${a.caps.length ? 'They can: ' + a.caps.map((c) => S.caps[c].toLowerCase()).join(', ') + '.' : 'They have no desk permissions yet.'}`));
-  if (SOV.busy.has(a.id)) items.push(h('div', { class: 'msg sys' }, `${a.name} is working…`));
+  if (SOV.busy.has(a.id)) items.push(SOV.stream[a.id] ? h('div', { class: 'msg live' }, SOV.stream[a.id]) : h('div', { class: 'msg sys' }, `${a.name} is working…`));
   log.replaceChildren(...items); if (atBottom) log.scrollTop = log.scrollHeight;
   const send = $('#send'); send.disabled = SOV.busy.has(a.id); $('#input').placeholder = `Message ${a.name}…`;
 }
@@ -265,13 +306,26 @@ async function sendChat() {
 }
 
 // ---------- boot ----------
-function renderAll() { const S = SOV.S; if (!S) return; renderHeader(); renderRail(); renderHint(); renderDrawer(); renderChat(); }
+function renderAll() {
+  const S = SOV.S; if (!S) return;
+  renderHeader(); renderGuide(); renderRail(); renderToolbar(); renderHint(); renderDrawer(); renderChat();
+  // After the intro, and only if no goal is saved yet, ask for it. Once saved it never appears again.
+  if (SOV.introDone && !S.mission && S.journey.stage === 'goal' && !SOV.goalPrompted[S.world.id] && $('#modal').hidden) { SOV.goalPrompted[S.world.id] = true; SOV.openGoal(); }
+}
 SOV.render = renderAll;
-(function logo() { const c = $('#logo').getContext('2d'); c.fillStyle = '#00ff88'; [[1, 8, 16, 4], [1, 3, 2, 6], [8, 1, 2, 8], [15, 3, 2, 6], [4, 5, 2, 3], [12, 5, 2, 3]].forEach((r) => c.fillRect(...r)); c.fillStyle = '#eafff2'; c.fillRect(8, 1, 2, 2); })();
 function frame(now) {
   requestAnimationFrame(frame);
   if (!SOV.S) return;
   window.Scene.render(now, SOV.S, { sel: SOV.sel, tool: SOV.tool, linkFrom, drag, dragRect, mouse, hover, busy: SOV.busy, pulses: SOV.pulses, chatAgent: SOV.chatAgent });
 }
-refresh().then(() => requestAnimationFrame(frame));
+(async function boot() {
+  const first = await (await fetch('/api/state')).json();
+  try { // a reinstall gets a new install id: forget everything the browser remembered about the old one
+    if (localStorage.getItem('sov.install') !== first.installId) { for (const k of Object.keys(localStorage)) if (k.startsWith('sov.')) localStorage.removeItem(k); localStorage.setItem('sov.install', first.installId); }
+    const w = localStorage.getItem('sov.world'); if (w && first.worlds.some((x) => x.id === w)) SOV.world = w;
+  } catch (_) { /* storage blocked: default world */ }
+  await refresh(); requestAnimationFrame(frame);
+  await window.Intro.play(!!SOV.S.settings.intro);
+  SOV.introDone = true; renderAll(); window.Scene.fit();
+})();
 })();
