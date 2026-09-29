@@ -1,6 +1,6 @@
 # Integrations
 
-Add a port from **Settings → Integrations** (or the Connector tool), open it, paste credentials, click **Test connection**. Secrets go into the write-only vault and are never shown again. Blank fields keep the saved value.
+Add a port from the **Integrations** panel (or the Connector tool), open it, paste credentials, click **Test connection**. Secrets go into the write-only vault and are never shown again. Blank fields keep the saved value.
 
 ## Honest status
 
@@ -14,6 +14,8 @@ Every adapter is written against the provider's documented API and covered by te
 | **Shopify** | Store domain, Admin API token (`read_orders`) | Paid orders as revenue, refunds as costs |
 | **Etsy** | API keystring, shop ID, sign-in (OAuth) | Paid receipts excluding tax. Etsy fees are not recorded yet |
 | **Facebook Ads** | Access token with `ads_read`, ad account ID | Completed days of spend as costs. Cannot create or edit campaigns |
+| **WooCommerce** | Store URL (https), REST consumer key and secret (read) | Completed and processing orders as revenue, refunds as costs |
+| **Gumroad** | Access token | Sales as revenue, Gumroad fees as costs; refunded and charged-back sales ignored. First page of results per sync |
 
 USD only for now: other currencies are skipped and reported. Sync runs every 10 minutes per connector (toggle off in the connector), or click Sync now. Entries are idempotent by reference, so overlapping windows never double count. Pick a venture in the connector to attribute its revenue and costs.
 
@@ -25,6 +27,14 @@ USD only for now: other currencies are skipped and reported. Sync runs every 10 
 | **Notion** | Integration token, parent page ID | `{"title","body"}` creates a page |
 | **Google Drive** | OAuth client ID/secret, sign-in | `{"name","content","asGoogleDoc"}`. `drive.file` scope: it only sees files it made |
 | **Google Calendar** | OAuth client ID/secret, sign-in | `{"title","start","end","description"}`. Never invites guests |
+| **Google Sheets** | OAuth client ID/secret, sign-in, spreadsheet ID | `{"row":[...]}` appends a row |
+| **Airtable** | Personal access token, base ID, table | `{"fields":{...}}` adds a row |
+| **Slack** | Incoming webhook URL | `{"text"}`. *Test connection posts one short message* |
+| **Discord** | Webhook URL | `{"text"}`. *Test connection posts one short message* |
+| **Telegram** | Bot token, chat ID | `{"text"}` |
+| **Webhook** | URL (stored as a secret) | `{"payload":{...}}` POSTs JSON. Test sends `{"event":"sovereign.test"}` |
+
+The **Portal** connector is internal: it links worlds (see WORLDS.md).
 
 Draw a hallway from a room into the connector. The agents in that room are told the exact JSON to end their reply with. When work arrives, the JSON is parsed and validated, and an approval card shows exactly what will happen. Set **Settings → Guardrails** to "send automatically" only when you trust the pipeline.
 

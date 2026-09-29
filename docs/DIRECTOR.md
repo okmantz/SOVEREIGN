@@ -3,7 +3,7 @@
 The first agent on every station. It cannot be deleted, its role cannot change, and it always wears the crown (you can restyle everything else).
 
 **Powers:** `station.edit` (create/edit agents, rooms, desks, hallways, connectors) and `venture.create`. No other role can hold these, even from a Bridge desk.
-**Limits:** it proposes; it does not change policy, budgets, keys or the mission. Those are human-only.
+**Limits:** it proposes; it does not change policy, budgets or keys. Those are human-only. It can assign work to agents, tune their settings and message linked worlds without approval; creating or removing things waits for you.
 
 ## Plans, not commands
 

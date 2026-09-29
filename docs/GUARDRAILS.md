@@ -8,10 +8,13 @@ Each rule below has a test in `test/core.test.js`. Weakening one requires changi
 | One choke point for model calls | `providers/index.js` | Spend is recorded and written to the ledger as a verified cost. |
 | Director-only caps stay Director-only | `station.effectiveCaps` | Stripped for every non-Director role. |
 | Structural change needs approval | `director.propose` | Default `ask`. Plans are dry-run and atomic. |
-| Outbound actions need approval | `runner.visitConnector` | Email, Notion, Drive and Calendar actions file a `connector.call` approval by default; nothing is sent silently. |
+| Outbound actions need approval | `runner.sendToConnector` | Email, Notion, Drive, Calendar, Sheets, Airtable, Slack, Discord, Telegram and Webhook actions file a `connector.call` approval by default; nothing is sent silently. |
+| Assigning work is not structure | `director.IMMEDIATE` | `assign_task`, `update_agent`, `message_world` run at once; anything that creates or removes stations things waits for approval. |
+| The autopilot stops instead of burning money | `journey.step` | An unreachable model or a hit budget pauses the roadmap with a reason. |
+| The station budget spans every world | `guardrails.spentToday` | Summed across worlds. |
 | Email has a hard daily limit | `integrations.perform` | Enforced in code per connector, whatever the policy says. |
 | Agents cannot exceed their role | `roles.roleCaps`, `station.effectiveCaps` | A Lead Generator in an outreach room still cannot send email. |
-| Hallways enforce capabilities | `runner.visitConnector` | A source room without the connector's cap is blocked, with a note explaining the fix. |
+| Hallways enforce capabilities | `runner.dispatch` | A source room without the connector's cap is blocked, with a note explaining the fix. |
 | Loops and runaway chains stop | `runner.dispatch` | Max 12 hops plus loop detection. |
 | Local only | `sidecar/index.js` | Binds 127.0.0.1; foreign `Origin` headers get 403. |
 | Keys are write-only | `secrets.js`, `integrations.publicConnector` | Never included in any response or error message; API errors carry the host only. |

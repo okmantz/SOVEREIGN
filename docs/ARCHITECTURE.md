@@ -2,7 +2,11 @@
 
 ```
 frontend/ (canvas + panels)  ⇄  HTTP/JSON + SSE  ⇄  sidecar/ (Node, localhost only)
-                                                     ├─ store.js       JSON state, change events, atomic save
+                                                     ├─ store.js       root store: shared settings + worlds; WorldView facade; data in ./data
+                                                     ├─ worlds.js      create/connect worlds, portals, cross-world delivery
+                                                     ├─ jobs.js        per-role jobs, saved settings, task library
+                                                     ├─ planner.js     goal → milestones → roadmap → requirements → deploy plan
+                                                     ├─ journey.js     stages + autopilot
                                                      ├─ station.js     rooms, desks, hallways, connectors, capability math
                                                      ├─ roles.js       19 roles: room kind, capability ceiling, persona, default look
                                                      ├─ avatars.js     avatar catalog: options, palettes, 17 presets, validation
@@ -11,16 +15,18 @@ frontend/ (canvas + panels)  ⇄  HTTP/JSON + SSE  ⇄  sidecar/ (Node, localhos
                                                      ├─ runner.js      run an agent from a desk; dispatch work along hallways
                                                      ├─ guardrails.js  budgets, spend records, approvals + executors
                                                      ├─ ledger.js      verified vs claimed money, signed ingest, kill rules
-                                                     ├─ integrations/  adapters (stripe, shopify, etsy, meta_ads, notion, email, google) + oauth + registry
+                                                     ├─ integrations/  17 adapters + oauth + registry
                                                      ├─ secrets.js     write-only key vault
-                                                     └─ providers/     mock, openrouter, ollama (single choke point)
+                                                     └─ providers/     mock, openrouter, ollama (streaming), openai; one choke point with a per-provider queue
 ```
 
 ## Data model (state.json)
 
-`mission`, `settings`, `agents`, `rooms {x,y,w,h,kind,capabilities}`, `desks {roomId,x,y,grants}`, `hallways {from,to}`,
+Root: `settings`, `installId`, `worlds`. Each world: `id`, `name`, `kind`, `focus`, `mission`, `roadmap`, `journey`, `agents` (with `settings`), `rooms {x,y,w,h,kind,capabilities}`, `desks {roomId,x,y,grants}`, `hallways {from,to}`,
 `connectors {kind,x,y}`, `ventures {status,budgetCents,maxLossCents}`, `ledger`, `spend`, `approvals`, `outbox`, `transcripts`.
 Node refs used by hallways: `inbox`, `outbox`, `room:<id>`, `connector:<id>`.
+
+`store.state` is the default world and `store.forWorld(id)` returns the same interface bound to another, so every module works on "a station" without knowing about worlds.
 
 ## Capability math
 
