@@ -23,6 +23,8 @@ const sites = require('./lib/sites');
 const sop = require('./lib/sop');
 const memory = require('./lib/memory');
 const comfy = require('./lib/comfy');
+const bridge = require('./lib/company/bridge');
+const companyRoutes = require('./lib/company/routes');
 const { ROLES } = require('./lib/roles');
 
 const PORT = int(process.env.PORT, 8787);
@@ -50,7 +52,8 @@ function publicState(root, worldId) {
     progress: ledger.progress(s), ledger: s.ledger.slice(-60).reverse(),
     approvals: s.approvals.slice(-30).reverse(), outbox: (() => { const top = s.outbox.slice(0, 60), sopItem = s.outbox.find((o) => o.kind === 'sop'); return sopItem && !top.includes(sopItem) ? [...top, sopItem] : top; })(), transcripts,
     spentTodayCents: guardrails.spentToday(s),
-    activity: activity.list(store), site: sites.view(store)
+    activity: activity.list(store), site: sites.view(store),
+    company: (() => { try { return bridge.view(store); } catch (e) { return { enabled: false, error: e.message }; } })()
   };
 }
 
@@ -124,6 +127,7 @@ function build(root) {
     if (body.concurrency) { const c = st.concurrency; if (body.concurrency.ollama != null) c.ollama = Math.max(1, Math.min(8, int(body.concurrency.ollama, c.ollama))); if (body.concurrency.other != null) c.other = Math.max(1, Math.min(16, int(body.concurrency.other, c.other))); }
     if (['fast', 'balanced', 'thorough'].includes(body.speed)) st.speed = body.speed;
     if (body.loop && typeof body.loop === 'object') { const l = st.loop = st.loop || {}; if (['off', 'smart', 'always'].includes(body.loop.evaluate)) l.evaluate = body.loop.evaluate; if (body.loop.maxRevisions != null) l.maxRevisions = Math.max(0, Math.min(3, int(body.loop.maxRevisions, 1))); if (body.loop.maxRounds != null) l.maxRounds = Math.max(0, Math.min(500, int(body.loop.maxRounds, 0))); }
+    if (body.company && typeof body.company === 'object') { const c = st.company = { enabled: true, autonomy: 'approval_only', allowPaid: false, autopilot: false, ...(st.company || {}) }; if (body.company.enabled != null) c.enabled = !!body.company.enabled; if (['approval_only', 'permissioned'].includes(body.company.autonomy)) c.autonomy = body.company.autonomy; if (body.company.allowPaid != null) c.allowPaid = !!body.company.allowPaid; if (body.company.autopilot != null) c.autopilot = !!body.company.autopilot; }
     if (body.autoDelegate != null) st.autoDelegate = !!body.autoDelegate;
     if (body.autoContinue != null) st.autoContinue = !!body.autoContinue;
     if (body.waitMinutes != null) st.waitMinutes = Math.max(0, Math.min(240, int(body.waitMinutes, 10)));
@@ -200,6 +204,10 @@ function build(root) {
   on('POST', '/api/connectors/:id/sync', async ({ store, params }) => ok(await integrations.sync(store, params.id)));
   on('POST', '/api/connectors/:id/disconnect', ({ store, params }) => mutate(store, () => { const c = store.state.connectors[params.id]; assert(c, 'Connector not found', 404); integrations.oauth.disconnect(c.id); c.status = 'untested'; return ok(); }));
 
+  // ----- company layer (owner-facing): recipes launch a whole business, switches control autonomy and spending
+  on('GET', '/api/launch/recipes', () => ok({ recipes: bridge.recipes() }));
+  on('POST', '/api/launch/recipe', ({ store, body }) => ok(bridge.launchRecipe(store, body || {})));
+
   // ----- work, Director, approvals
   on('POST', '/api/run', async ({ store, body }) => { assert(body.task, 'Describe the task.'); return ok(await runner.dispatch(store, { start: body.from || 'inbox', task: String(body.task) })); });
   on('POST', '/api/director/message', async ({ store, body }) => { assert(body.text, 'Say something to the Director.'); return ok(await director.handleMessage(store, String(body.text).slice(0, 4000))); });
@@ -273,7 +281,8 @@ function createServer(root) {
     const url = new URL(req.url, 'http://x');
     // Block drive-by requests from other websites to this local, money-spending server.
     const origin = req.headers.origin;
-    if (origin && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) && !url.pathname.startsWith('/api/ingest/') && !(url.pathname.startsWith('/sites/') && (req.method === 'GET' || req.method === 'HEAD'))) { res.writeHead(403); return res.end('Forbidden origin'); }
+    if (origin && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) && !url.pathname.startsWith('/api/ingest/') && !url.pathname.startsWith('/hooks/') && !((url.pathname.startsWith('/sites/') || url.pathname.startsWith('/venture/')) && (req.method === 'GET' || req.method === 'HEAD'))) { res.writeHead(403); return res.end('Forbidden origin'); }
+    if (url.pathname.startsWith('/api/company') || url.pathname.startsWith('/hooks/') || url.pathname.startsWith('/venture/')) { if (await companyRoutes.handle(bridge.companyFor(root), req, res)) return; }
     if (url.pathname.startsWith('/oauth/')) return handleOAuth(root, req, res, url);
     if (url.pathname.startsWith('/sites/')) return serveSite(root, req, res, url);
     if (!url.pathname.startsWith('/api/')) return serveStatic(req, res);
@@ -315,6 +324,7 @@ function start(opts = {}) {
   const tick = setInterval(() => journey.tickAll(root), 20000); tick.unref();
   server.on('close', () => { clearInterval(sync); clearInterval(tick); });
   return new Promise((resolve) => server.listen(opts.port ?? PORT, HOST, () => {
+    try { bridge.setPort(root, server.address().port); } catch (_) { /* the company layer is optional at boot */ }
     if (root.data.settings.provider.name === 'ollama') providers.ollama.warm(root.state);
     if (opts.autopilot !== false) journey.tickAll(root); // pick up where a running roadmap left off
     resolve({ server, store: root, root, port: server.address().port });
