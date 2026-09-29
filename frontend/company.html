@@ -15,7 +15,11 @@ table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:6px 4px;
 <header><h1>SOVEREIGN · Founder Control Center</h1><div><button id="tick">Run CEO review</button> <button id="refresh">Refresh</button></div></header>
 <main>
 <section class="card"><h2>Today — what happened while you were away</h2><ul id="done"></ul></section>
+<section class="card"><h2>Daily digest <span id="dcount" class="tag"></span></h2><p id="dwarn" class="warn"></p><div id="dbtn"></div><ul id="digest"></ul></section>
+<section class="card"><h2>Phone remote <span id="rtag" class="tag"></span></h2><div class="grid" id="rst"></div><p id="rmsg" class="warn"></p>
+<div><button id="rpair">Pair Telegram</button> <button id="rpairD">Pair Discord</button> <button id="rcons">Create console link</button> <button id="rtest">Send test</button> <button id="rstop" class="no">STOP everything</button> <button id="rgo" class="ok">Resume</button></div></section>
 <section class="card"><h2>Needs your decision</h2><ul id="appr"></ul></section>
+<section class="card"><h2>Recurring revenue</h2><div class="grid" id="rec"></div><p id="tun" class="tag"></p></section>
 <section class="card"><h2>Attention</h2><ul id="attn"></ul></section>
 <section class="card"><h2>Portfolio</h2><div class="grid" id="pf"></div></section>
 <section class="card"><h2>Ventures</h2><table><thead><tr><th>Name</th><th>Stage</th><th>Profit</th><th>Customers</th><th>Next action</th></tr></thead><tbody id="vs"></tbody></table></section>
