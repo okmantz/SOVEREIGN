@@ -18,6 +18,10 @@ const avatars = require('./lib/avatars');
 const jobs = require('./lib/jobs');
 const worlds = require('./lib/worlds');
 const journey = require('./lib/journey');
+const activity = require('./lib/activity');
+const sites = require('./lib/sites');
+const sop = require('./lib/sop');
+const memory = require('./lib/memory');
 const { ROLES } = require('./lib/roles');
 
 const PORT = int(process.env.PORT, 8787);
@@ -43,8 +47,9 @@ function publicState(root, worldId) {
     connectors: Object.fromEntries(Object.values(s.connectors).map((c) => [c.id, integrations.publicConnector(c)])),
     pnl: Object.fromEntries(Object.keys(s.ventures).map((id) => [id, ledger.pnl(s, id)])),
     progress: ledger.progress(s), ledger: s.ledger.slice(-60).reverse(),
-    approvals: s.approvals.slice(-30).reverse(), outbox: s.outbox.slice(0, 60), transcripts,
-    spentTodayCents: guardrails.spentToday(s)
+    approvals: s.approvals.slice(-30).reverse(), outbox: (() => { const top = s.outbox.slice(0, 60), sopItem = s.outbox.find((o) => o.kind === 'sop'); return sopItem && !top.includes(sopItem) ? [...top, sopItem] : top; })(), transcripts,
+    spentTodayCents: guardrails.spentToday(s),
+    activity: activity.list(store), site: sites.view(store)
   };
 }
 
@@ -77,7 +82,14 @@ function build(root) {
   on('POST', '/api/journey/setup/complete', ({ store }) => ok(journey.completeSetup(store)));
   on('POST', '/api/journey/pause', ({ store }) => { journey.pause(store); return ok(); });
   on('POST', '/api/journey/resume', ({ store }) => { journey.resume(store); return ok(); });
-  on('POST', '/api/journey/replan', ({ store }) => { journey.replan(store).catch(() => {}); return ok(); });
+  on('POST', '/api/journey/replan', ({ store, body }) => { journey.replan(store, { advance: !!(body && body.advance) }).catch(() => {}); return ok(); });
+  on('POST', '/api/journey/carry/:id/done', ({ store, params }) => { journey.resolveCarry(store, params.id, 'done'); return ok(); });
+  on('POST', '/api/journey/carry/:id/retry', ({ store, params }) => { journey.resolveCarry(store, params.id, 'retry'); return ok(); });
+  on('POST', '/api/sop/replay', ({ store }) => { sop.replay(store); return ok(); });
+  on('POST', '/api/sop/issue', ({ store }) => ok(sop.issue(store)));
+  on('POST', '/api/memory/note', ({ store, body }) => { const t = memory.addOwnerNote(store.state, body.text); assert(t, 'Write the rule in a few words.'); store.change('state'); return ok(); });
+  on('POST', '/api/memory/note/remove', ({ store, body }) => { const m = memory.ensure(store.state); m.ownerNotes = m.ownerNotes.filter((n) => n.text !== body.text); store.change('state'); return ok(); });
+  on('POST', '/api/site/links', ({ store, body }) => { sites.setLinks(store, body.links || {}); return ok({ links: sites.links(store) }); });
   on('POST', '/api/journey/task/:id/remove', ({ store, params }) => { journey.removeTask(store, params.id); return ok(); });
   on('POST', '/api/journey/task/:id/retry', ({ store, params }) => { journey.retryTask(store, params.id); return ok(); });
   on('POST', '/api/journey/task/:id/done', ({ store, params }) => { journey.completeTask(store, params.id); return ok(); });
@@ -96,6 +108,10 @@ function build(root) {
       if (body.ollama.numCtx != null) st.ollama.numCtx = Math.max(1024, Math.min(32768, int(body.ollama.numCtx, st.ollama.numCtx)));
     }
     if (body.concurrency) { const c = st.concurrency; if (body.concurrency.ollama != null) c.ollama = Math.max(1, Math.min(8, int(body.concurrency.ollama, c.ollama))); if (body.concurrency.other != null) c.other = Math.max(1, Math.min(16, int(body.concurrency.other, c.other))); }
+    if (['fast', 'balanced', 'thorough'].includes(body.speed)) st.speed = body.speed;
+    if (body.autoDelegate != null) st.autoDelegate = !!body.autoDelegate;
+    if (body.autoContinue != null) st.autoContinue = !!body.autoContinue;
+    if (body.waitMinutes != null) st.waitMinutes = Math.max(0, Math.min(240, int(body.waitMinutes, 10)));
     if (body.intro != null) st.intro = !!body.intro;
     if (body.openaiCompat && body.openaiCompat.baseUrl != null) {
       const u = String(body.openaiCompat.baseUrl).trim().replace(/\/+$/, ''); assert(/^https?:\/\/\S+$/.test(u), 'Base URL must start with http:// or https://');
@@ -190,6 +206,20 @@ function serveStatic(req, res) {
   fs.createReadStream(file).pipe(res);
 }
 
+// The live preview of a site an agent built. It is agent-written code, so it is sandboxed: it gets an opaque origin, which means
+// it cannot call this server's API (that check rejects any origin that is not localhost) and cannot touch the Sovereign page.
+function serveSite(root, req, res, url) {
+  const parts = decodeURIComponent(url.pathname).split('/').filter(Boolean); // ['sites', worldId, ...file]
+  const wid = parts[1], world = wid && root.world(wid);
+  if (!world || (req.method !== 'GET' && req.method !== 'HEAD')) { res.writeHead(404); return res.end('Not found'); }
+  if (parts.length === 2 && !url.pathname.endsWith('/')) { res.writeHead(302, { location: url.pathname + '/' }); return res.end(); }
+  const name = parts.slice(2).join('/') || 'index.html', store = root.forWorld(wid), body = sites.read(store, name);
+  if (body == null) { res.writeHead(404, { 'content-type': 'text/plain' }); return res.end(sites.names(store).length ? 'File not found in this site.' : 'No site has been built yet. The Builder will make one when its task runs.'); }
+  res.writeHead(200, { 'content-type': sites.mime(name), 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'access-control-allow-origin': '*',
+    'content-security-policy': "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox; frame-ancestors 'none'" });
+  res.end(req.method === 'HEAD' ? undefined : body);
+}
+
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const page = (res, status, title, msg) => {
   res.writeHead(status, { 'content-type': 'text/html; charset=utf-8' });
@@ -228,8 +258,9 @@ function createServer(root) {
     const url = new URL(req.url, 'http://x');
     // Block drive-by requests from other websites to this local, money-spending server.
     const origin = req.headers.origin;
-    if (origin && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) && !url.pathname.startsWith('/api/ingest/')) { res.writeHead(403); return res.end('Forbidden origin'); }
+    if (origin && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) && !url.pathname.startsWith('/api/ingest/') && !(url.pathname.startsWith('/sites/') && (req.method === 'GET' || req.method === 'HEAD'))) { res.writeHead(403); return res.end('Forbidden origin'); }
     if (url.pathname.startsWith('/oauth/')) return handleOAuth(root, req, res, url);
+    if (url.pathname.startsWith('/sites/')) return serveSite(root, req, res, url);
     if (!url.pathname.startsWith('/api/')) return serveStatic(req, res);
     if (url.pathname === '/api/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
