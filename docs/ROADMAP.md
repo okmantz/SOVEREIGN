@@ -23,3 +23,7 @@
 - Per-agent sandboxed workspaces and code execution.
 - Voice, chat channels (Telegram/Discord) for approvals on your phone.
 - Import/export a station as a shareable template.
+
+## Recurring revenue and remote control (v0.6)
+Shipped: renewals/cancellations from Stripe (webhook or poller), timed sequences, retainer delivery engine, dunning, churn-save, onboarding, upsell, testimonial ask, inbound reply handling, daily digest, cash-flow guardrail, optional tunnel, hosted pages, Telegram/Discord/console remote control with a decision trail. See `docs/RECURRING_REVENUE.md` and `docs/REMOTE.md`.
+Not yet: ordering new tasks from the phone, Slack/Matrix/Signal channels, live-account verification of every adapter.
