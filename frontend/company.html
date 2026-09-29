@@ -1,0 +1,23 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SOVEREIGN · Founder Control Center</title>
+<style>
+:root{--bg:#0e1113;--card:#161b1f;--fg:#e8ecef;--mut:#8b979f;--ok:#4cc38a;--warn:#f2b84b;--bad:#ef6461;--acc:#6ea8fe}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}
+header{padding:16px 20px;border-bottom:1px solid #222a30;display:flex;justify-content:space-between;align-items:center}
+h1{font-size:18px;margin:0}main{max-width:1000px;margin:0 auto;padding:16px;display:grid;gap:14px}
+.card{background:var(--card);border-radius:12px;padding:16px}h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin:0 0 10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}.kpi b{display:block;font-size:22px}.kpi span{color:var(--mut);font-size:12px}
+ul{list-style:none;padding:0;margin:0}li{padding:6px 0;border-bottom:1px solid #222a30;display:flex;justify-content:space-between;gap:10px;align-items:center}li:last-child{border:0}
+button{background:#232b31;color:var(--fg);border:0;border-radius:8px;padding:6px 12px;cursor:pointer;font:inherit}button.ok{background:var(--ok);color:#06210f}button.no{background:#3a2323;color:#ffb3b1}
+.tag{font-size:11px;padding:2px 8px;border-radius:99px;background:#232b31;color:var(--mut)}.pos{color:var(--ok)}.neg{color:var(--bad)}.warn{color:var(--warn)}
+table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:6px 4px;border-bottom:1px solid #222a30;font-size:14px}th{color:var(--mut);font-weight:500}
+</style></head><body>
+<header><h1>SOVEREIGN · Founder Control Center</h1><div><button id="tick">Run CEO review</button> <button id="refresh">Refresh</button></div></header>
+<main>
+<section class="card"><h2>Today — what happened while you were away</h2><ul id="done"></ul></section>
+<section class="card"><h2>Needs your decision</h2><ul id="appr"></ul></section>
+<section class="card"><h2>Attention</h2><ul id="attn"></ul></section>
+<section class="card"><h2>Portfolio</h2><div class="grid" id="pf"></div></section>
+<section class="card"><h2>Ventures</h2><table><thead><tr><th>Name</th><th>Stage</th><th>Profit</th><th>Customers</th><th>Next action</th></tr></thead><tbody id="vs"></tbody></table></section>
+<section class="card"><h2>Pipeline &amp; system</h2><div class="grid" id="sys"></div></section>
+</main><script src="/company.js"></script></body></html>
