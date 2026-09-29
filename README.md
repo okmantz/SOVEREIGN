@@ -25,9 +25,13 @@ Autonomous does not mean unsupervised. Sovereign is built around **human-gated a
 
 A **world** is a whole station of its own: its own Director, rooms, agents, goal and roadmap. Create an e-commerce world and a trading world, then connect them with **portals** so one can hand work to the other. Switch worlds from the header. See [docs/WORLDS.md](docs/WORLDS.md).
 
+## The company layer: a CEO above the Director
+
+Everything starts with your goal. The goal becomes a **venture** owned by a **CEO** agent, who decides what to build and when to scale, pivot or kill it, from verified numbers only. A **CFO** judges every spend, the **Director** turns the CEO's direction into rooms, agents and tasks, and when a separate business deserves its own team the Director proposes a **new world** for you to approve. Agents can call company tools (CRM, memory, publish a site), each limited to its role and gated by the permission engine. **It is free by default**: nothing that costs money can run until you untick "Free only" in Settings. See [docs/COMPANY.md](docs/COMPANY.md).
+
 ## Every agent has a coded job
 
-Each of the 19 roles has a job description, deliverables, a quality bar, a library of tasks, and **saved settings** you can tune (a Content Manager has platforms, posts per week, content pillars, brand voice and a standard call to action). Those settings shape every prompt that agent sees. See [docs/JOBS.md](docs/JOBS.md).
+Each of the 25 roles has a full job description (who it reports to, what it owns, what it must never do, when it escalates, which tools it may call), deliverables, a quality bar, deliverables, a quality bar, a library of tasks, and **saved settings** you can tune (a Content Manager has platforms, posts per week, content pillars, brand voice and a standard call to action). Those settings shape every prompt that agent sees. See [docs/JOBS.md](docs/JOBS.md).
 
 ## The station
 
@@ -85,6 +89,7 @@ sidecar/            Local Node runtime
   lib/journey.js      The five stages and the autopilot
   lib/director.js     Plans and actions (assign_task, message_world, ...)
   lib/runner.js       Run agents, dispatch work along hallways
+  lib/company/        CEO, CFO, ventures, CRM, sandbox, deploy, payments, tools (see docs/COMPANY.md)
   lib/integrations/   17 adapters + oauth
   lib/providers/      mock, openrouter, ollama (streaming), openai-compatible
 frontend/           Vanilla JS: intro.js, app.js, panels.js, editor.js, scene.js, avatar.js
@@ -93,7 +98,7 @@ recipes/            Draft format for reusable ventures
 test/               Node test runner suite (unit, stubbed-HTTP integrations, server)
 ```
 
-## Status (v0.3)
+## Status (v0.4)
 
 Real and tested: the guided journey and autopilot, worlds and portals, per-role jobs and settings, the Director assigning work, 17 integration adapters against stubbed HTTP, Ollama streaming and queueing against a fake Ollama server, station editor, budgets, signed ledger ingestion, kill rules, and a browser end-to-end run of the whole flow.
 

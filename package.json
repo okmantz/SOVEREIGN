@@ -1,6 +1,6 @@
 {
   "name": "sovereign",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A command station where a Director agent plans your goal, builds a team of agents, and runs the work toward a profit target you set.",
   "private": true,
   "license": "MIT",
@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node sidecar/index.js",
+    "company": "node sidecar/lib/company/server.js",
     "test": "node --test"
   }
 }
