@@ -3,9 +3,11 @@
 const { id, assert, today } = require('./util');
 const ledger = require('./ledger');
 
+// The station budget spans every world; a per-agent budget is that agent's own.
 function spentToday(state, agentId) {
   const d = today();
-  return state.spend.filter((s) => s.day === d && (!agentId || s.agentId === agentId)).reduce((t, s) => t + s.cents, 0);
+  const pools = agentId ? [state] : (state.all || [state]);
+  return pools.flatMap((w) => w.spend).filter((s) => s.day === d && (!agentId || s.agentId === agentId)).reduce((t, s) => t + s.cents, 0);
 }
 
 function assertBudget(state, agentId) {

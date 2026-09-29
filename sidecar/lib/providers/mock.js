@@ -46,7 +46,9 @@ async function complete({ state, agent, messages, purpose }) {
   let text;
   if (purpose === 'director') {
     const crew = Object.values(state.agents).filter((a) => a.role !== 'director');
-    if (crew.length === 0) text = JSON.stringify(starterPlan(state));
+    const m = /(?:tell|ask|have)\s+([\w-]+)\s+to\s+(.+)/i.exec(last), who = m && crew.find((a) => a.name.toLowerCase() === m[1].toLowerCase());
+    if (who) text = JSON.stringify({ say: `On it. I've asked ${who.name} to do that. The result will land in the Outbox.`, actions: [{ type: 'assign_task', agent: who.name, instructions: m[2].trim() }] });
+    else if (crew.length === 0) text = JSON.stringify(starterPlan(state));
     else text = JSON.stringify({ say: `The station has ${crew.length} agents. Send work through the Inbox, or ask me for another venture and I'll plan it. (You're on the offline demo model. Connect a real one in Settings for real planning.)`, actions: [] });
   } else {
     text = `[${agent.name}, offline demo model] Got it: "${last.replace(/\s+/g, ' ').slice(0, 140)}". Connect a real model in Settings to get real work.`;

@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const { id, assert, int } = require('./util');
 const secrets = require('./secrets');
 
-const VERIFIED_SOURCES = new Set(['stripe', 'paypal', 'shopify', 'etsy', 'ads.meta', 'ads.google', 'bank', 'harness.model']);
+const VERIFIED_SOURCES = new Set(['stripe', 'paypal', 'shopify', 'etsy', 'woocommerce', 'gumroad', 'ads.meta', 'ads.google', 'bank', 'harness.model']);
 
 function add(store, e) {
   const state = store.state;

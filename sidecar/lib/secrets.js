@@ -4,12 +4,12 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { HOME } = require('./store');
+const { HOME, ensureHome } = require('./store');
 
 const file = () => path.join(HOME, 'secrets.json');
 function read() { try { return JSON.parse(fs.readFileSync(file(), 'utf8')); } catch (_) { return {}; } }
 function write(obj) {
-  fs.mkdirSync(HOME, { recursive: true });
+  ensureHome();
   fs.writeFileSync(file(), JSON.stringify(obj), { mode: 0o600 });
 }
 const mem = {}; // used when SOVEREIGN_NO_PERSIST is set (tests)
@@ -27,4 +27,7 @@ function rotateIngestSecret() {
   return s; // shown to the user exactly once
 }
 
-module.exports = { get, set, has, del, rotateIngestSecret };
+// Wipe every stored secret (Start fresh).
+function clearAll() { if (persist()) { try { fs.unlinkSync(file()); } catch (_) { /* nothing stored */ } } else for (const k of Object.keys(mem)) delete mem[k]; }
+
+module.exports = { get, set, has, del, clearAll, rotateIngestSecret };

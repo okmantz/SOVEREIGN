@@ -2,6 +2,7 @@
 const { id, assert } = require('./util');
 const { ROLES, ALIASES, roleOf } = require('./roles');
 const avatars = require('./avatars');
+const jobs = require('./jobs');
 const station = require('./station');
 
 function hash(s) { let h = 2166136261; for (const c of String(s)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
@@ -59,6 +60,7 @@ function createAgent(state, p) {
     avatar: cleanFor(role, p.avatar, defaultAvatar(role, name)),
     deskId: null, locked: role === 'director',
     ceiling: Array.isArray(p.ceiling) ? p.ceiling : null, // null = the role's own ceiling
+    settings: jobs.cleanSettings(role, p.settings, null), // saved job settings for this role
     createdAt: Date.now()
   };
   state.agents[agent.id] = agent;
@@ -76,8 +78,9 @@ function updateAgent(state, agentId, p) {
   if (p.role != null && roleOf(p.role) !== a.role) {
     assert(!a.locked, 'The Director\'s role cannot change.');
     assert(ROLES[roleOf(p.role)] && roleOf(p.role) !== 'director', 'Pick one of the agent roles.');
-    a.role = roleOf(p.role);
+    a.role = roleOf(p.role); a.settings = jobs.cleanSettings(a.role, null, null);
   }
+  if (p.settings) a.settings = jobs.cleanSettings(a.role, p.settings, a.settings);
   if (p.avatar) a.avatar = cleanFor(a.role, p.avatar, a.avatar);
   if (Array.isArray(p.ceiling) || p.ceiling === null) a.ceiling = p.ceiling;
   if (p.deskId !== undefined) { if (p.deskId) seat(state, a.id, p.deskId); else { seat(state, a.id, null); placeAgent(state, a.id); } }
@@ -100,6 +103,7 @@ function migrate(state) {
     if (!ROLES[a.role]) { a.role = 'custom'; changed = true; }
     if (avatars.isLegacy(a.avatar)) { a.avatar = cleanFor(a.role, null, defaultAvatar(a.role, a.name)); changed = true; }
     if (a.ceiling && !a.ceiling.length) { a.ceiling = null; changed = true; }
+    if (!a.settings) { a.settings = jobs.cleanSettings(a.role, null, null); changed = true; }
   }
   for (const c of Object.values(state.connectors)) {
     if (station.CONNECTOR_ALIASES[c.kind]) { c.kind = station.CONNECTOR_ALIASES[c.kind]; changed = true; }

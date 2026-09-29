@@ -66,4 +66,23 @@ const drive = {
   }
 };
 
-module.exports = { calendar, drive };
+const sheets = {
+  label: 'Google Sheets', source: 'sheets', defaultLimit: 200,
+  blurb: 'Appends a row to a Google Sheet. It only touches sheets you point it at. Each row waits for your approval by default.',
+  fields: [...oauthFields, { key: 'spreadsheetId', label: 'Spreadsheet ID', placeholder: 'The long ID in the sheet URL' }, { key: 'range', label: 'Range', optional: true, placeholder: 'Sheet1!A:Z' }],
+  oauth: oauthCfg('https://www.googleapis.com/auth/spreadsheets'),
+  contract: '{"row":["Acme","New","2026-10-05"]}',
+  validate(a) { if (!Array.isArray(a.row) || !a.row.length || a.row.length > 50) throw new Error('Sheets needs a "row" array of 1 to 50 values.'); },
+  preview(a) { return 'Append a row to your sheet:\n' + a.row.map(String).join(' | ').slice(0, 500); },
+  async test(c, sec) {
+    const r = await request(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(c.config.spreadsheetId)}?fields=properties.title`, { headers: await auth(this, c, sec) });
+    return { detail: `Connected to “${(r.json && r.json.properties && r.json.properties.title) || 'your sheet'}”.` };
+  },
+  async perform(c, sec, a) {
+    const range = encodeURIComponent(c.config.range || 'Sheet1!A:Z');
+    await request(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(c.config.spreadsheetId)}/values/${range}:append?valueInputOption=USER_ENTERED`, { method: 'POST', headers: await auth(this, c, sec), body: { values: [a.row.map((v) => (v == null ? '' : v))] } });
+    return { detail: 'Added a row to Google Sheets' };
+  }
+};
+
+module.exports = { calendar, drive, sheets };
