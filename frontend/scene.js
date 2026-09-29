@@ -33,6 +33,12 @@
     const ca = center(a), cb = center(b), vert = Math.abs(cb.y - ca.y) > Math.abs(cb.x - ca.x);
     return [ca, vert ? { x: ca.x, y: cb.y } : { x: cb.x, y: ca.y }, cb];
   }
+  // Any two nodes, drawn as an L-shaped lane like a hallway. Used for teammates' inputs flowing in and for the SOP flight.
+  function pathBetween(S, fromRef, toRef) {
+    const a = nodeRect(S, fromRef), b = nodeRect(S, toRef); if (!a || !b) return null;
+    const ca = center(a), cb = center(b), vert = Math.abs(cb.y - ca.y) > Math.abs(cb.x - ca.x);
+    return [ca, vert ? { x: ca.x, y: cb.y } : { x: cb.x, y: ca.y }, cb];
+  }
   // client pixels -> internal canvas pixels (the canvas is letterboxed inside its box)
   function toCanvas(clientX, clientY) {
     const r = canvas.getBoundingClientRect(), s = Math.min(r.width / CW, r.height / CH);
@@ -187,13 +193,15 @@
 
   function drawAgentDesk(S, d, ui, now) {
     const a = agentAt(S, d.id), room = S.rooms[d.roomId], col = room ? kindColor(S, room.kind) : '#00ff88';
-    const X = d.x * T, Y = d.y * T + OY, cx = X + T, busy = a && ui.busy.has(a.id);
+    const X = d.x * T, Y = d.y * T + OY, cx = X + T, busy = a && ui.busy.has(a.id), job = busy ? ui.busy.get(a.id) : null;
     const chosen = a && ui.chatAgent === a.id, sel = ui.sel && ((ui.sel.type === 'agent' && a && ui.sel.id === a.id) || (ui.sel.type === 'desk' && ui.sel.id === d.id));
-    if (busy) { ctx.save(); const pulse = 0.25 + 0.15 * Math.sin(now / 220); ctx.fillStyle = `rgba(0,255,136,${pulse})`; ctx.beginPath(); ctx.ellipse(cx, Y + 30, 48, 14, 0, 0, 7); ctx.fill(); ctx.restore(); }
+    if (busy) { ctx.save(); const pulse = 0.28 + 0.16 * Math.sin(now / 220); ctx.fillStyle = rgba(col, pulse); ctx.beginPath(); ctx.ellipse(cx, Y + 30, 58, 17, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = rgba(col, .55 + .25 * Math.sin(now / 220)); ctx.lineWidth = 2; ctx.shadowColor = col; ctx.shadowBlur = 12; ctx.beginPath(); ctx.ellipse(cx, Y + 30, 58, 17, 0, 0, 7); ctx.stroke(); ctx.restore(); }
     if (a) {
       ctx.fillStyle = '#0a1c13'; ctx.fillRect(cx - 16, Y - 32, 32, 28); ctx.strokeStyle = 'rgba(0,255,136,.25)'; ctx.strokeRect(cx - 15.5, Y - 31.5, 31, 27); // chair back
       const bob = busy ? (Math.floor(now / 320) % 2) : 0;
-      window.Avatar.draw(ctx, a.avatar, cx - 27, Y - 46 + bob, 3, window.Avatar.frameFor(a.id, now, busy));
+      ctx.save(); if (ui.anyBusy && !busy) ctx.globalAlpha = 0.62; // while others work, idle agents fade back so the workers stand out
+      window.Avatar.draw(ctx, a.avatar, cx - 27, Y - 46 + bob, 3, window.Avatar.frameFor(a.id, now, busy)); ctx.restore();
     }
     // desk: top surface, front face, glowing edge
     ctx.fillStyle = '#185236'; ctx.fillRect(X, Y + 4, 2 * T, 10); ctx.fillStyle = '#2a7a52'; ctx.fillRect(X, Y + 4, 2 * T, 2);
@@ -207,12 +215,58 @@
       ctx.save(); ctx.globalAlpha = busy ? 0.95 : 0.4; ctx.fillStyle = 'rgba(0,40,20,.75)'; ctx.fillRect(hx, hy, 34, 24); ctx.strokeStyle = '#00ff88'; ctx.strokeRect(hx + .5, hy + .5, 33, 23);
       ctx.fillStyle = '#00ff88'; for (let l = 0; l < 4; l++) { const w = busy ? 6 + ((Math.floor(now / 180) * 7 + l * 11) % 20) : 8 + l * 4; ctx.fillRect(hx + 4, hy + 4 + l * 5, Math.min(w, 26), 2); }
       ctx.restore();
-      if (busy) { ctx.fillStyle = '#eafff2'; ctx.fillRect(cx + 16, Y - 62, 26, 14); ctx.fillStyle = '#031009'; ctx.font = `700 12px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText('.'.repeat(1 + (Math.floor(now / 300) % 3)), cx + 29, Y - 54); }
-      if (chosen) { const b = Math.sin(now / 240) * 2; ctx.fillStyle = '#00ff88'; ctx.beginPath(); ctx.moveTo(cx - 6, Y - 58 + b); ctx.lineTo(cx + 6, Y - 58 + b); ctx.lineTo(cx, Y - 50 + b); ctx.fill(); }
+      if (busy) { // a label saying what they are doing, how long, and an activity bar
+        const title = String((job && job.title) || 'Working').replace(/^[^·]*·\s*/, ''), secs = Math.max(0, Math.floor((Date.now() - ((job && job.since) || Date.now())) / 1000));
+        ctx.save(); ctx.font = `700 10px ${FONT}`; const label = title.length > 26 ? title.slice(0, 25) + '…' : title, tw = Math.max(70, ctx.measureText(label).width + 22), bx = cx - tw / 2, by = Y - 74;
+        ctx.fillStyle = 'rgba(2,18,10,.94)'; ctx.fillRect(bx, by, tw, 24); ctx.strokeStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 8; ctx.lineWidth = 1.5; ctx.strokeRect(bx + .5, by + .5, tw - 1, 23); ctx.shadowBlur = 0;
+        ctx.fillStyle = '#eafff2'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(label, bx + 8, by + 8);
+        ctx.font = `10px ${FONT}`; ctx.fillStyle = col; ctx.fillText(secs + 's', bx + 8, by + 18);
+        const bw = tw - 42, pos = ((now / 900) % 1); ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(bx + 34, by + 15, bw, 4); ctx.fillStyle = col; const seg = bw * .35, off = (bw + seg) * pos - seg; ctx.fillRect(bx + 34 + Math.max(0, off), by + 15, Math.max(0, Math.min(seg, bw - Math.max(0, off), off + seg)), 4);
+        ctx.fillStyle = 'rgba(2,18,10,.94)'; ctx.beginPath(); ctx.moveTo(cx - 5, by + 24); ctx.lineTo(cx + 5, by + 24); ctx.lineTo(cx, by + 31); ctx.fill(); ctx.restore();
+      }
+      if (chosen && !busy) { const b = Math.sin(now / 240) * 2; ctx.fillStyle = '#00ff88'; ctx.beginPath(); ctx.moveTo(cx - 6, Y - 58 + b); ctx.lineTo(cx + 6, Y - 58 + b); ctx.lineTo(cx, Y - 50 + b); ctx.fill(); }
     } else {
       ctx.save(); ctx.font = `10px ${FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(120,200,160,.55)'; ctx.fillText('empty desk', cx, Y + 26); ctx.restore();
     }
     if (sel) { ctx.save(); ctx.shadowColor = '#7dffc0'; ctx.shadowBlur = 12; ctx.strokeStyle = '#eafff2'; ctx.lineWidth = 2; ctx.strokeRect(X - 3, Y - (a ? 50 : 0), 2 * T + 6, a ? 90 : 40); ctx.restore(); }
+  }
+
+  // A room with someone working in it pulses in its own colour and shows how many are busy.
+  function drawRoomActivity(S, ui, now) {
+    const count = {};
+    for (const a of Object.values(S.agents)) if (ui.busy.has(a.id) && a.deskId && S.desks[a.deskId]) count[S.desks[a.deskId].roomId] = (count[S.desks[a.deskId].roomId] || 0) + 1;
+    for (const [rid, n] of Object.entries(count)) {
+      const r = S.rooms[rid]; if (!r) continue; const col = kindColor(S, r.kind), X = r.x * T, Y = r.y * T + OY, W = r.w * T, H = r.h * T, k = 0.5 + 0.5 * Math.sin(now / 260);
+      ctx.save(); ctx.fillStyle = rgba(col, .05 + .05 * k); ctx.fillRect(X, Y, W, H); ctx.shadowColor = col; ctx.shadowBlur = 10 + 12 * k; ctx.strokeStyle = rgba(col, .55 + .4 * k); ctx.lineWidth = 2.5; ctx.strokeRect(X - 8, Y - WH - 7, W + 16, H + WH + 15);
+      ctx.font = `700 11px ${FONT}`; const label = n + ' working', tw = ctx.measureText(label).width + 14; ctx.fillStyle = col; ctx.shadowBlur = 0; ctx.fillRect(X + W - tw + 8, Y - WH - 25, tw, 17); ctx.fillStyle = '#021208'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, X + W - tw / 2 + 8, Y - WH - 16); ctx.restore();
+    }
+  }
+  // The SOP: a document that travels Bridge → rooms → Outbox, lighting each stop as it passes.
+  function drawSop(S, sop, now) {
+    if (!sop) return true;
+    const stops = sop.route.filter((r) => nodeRect(S, r.ref)); if (stops.length < 2) return true;
+    const LEG = 850, HOLD = 450, total = (stops.length - 1) * LEG + HOLD, t = now - sop.t0; if (t > total + 900) return true;
+    const legs = []; for (let i = 0; i < stops.length - 1; i++) legs.push(pathBetween(S, stops[i].ref, stops[i + 1].ref));
+    const li = Math.min(stops.length - 2, Math.floor(Math.max(0, t) / LEG)), f = Math.min(1, Math.max(0, (t - li * LEG) / LEG)), P = legs[li];
+    const ease = f < .5 ? 2 * f * f : 1 - Math.pow(-2 * f + 2, 2) / 2;
+    const l0 = Math.hypot(P[1].x - P[0].x, P[1].y - P[0].y), l1 = Math.hypot(P[2].x - P[1].x, P[2].y - P[1].y), tot = l0 + l1 || 1; let d = ease * tot, x, y;
+    if (d <= l0) { const q = l0 ? d / l0 : 0; x = P[0].x + (P[1].x - P[0].x) * q; y = P[0].y + (P[1].y - P[0].y) * q; } else { const q = l1 ? (d - l0) / l1 : 0; x = P[1].x + (P[2].x - P[1].x) * q; y = P[1].y + (P[2].y - P[1].y) * q; }
+    const at = Math.min(stops.length - 1, li + (f > .85 ? 1 : 0)), gold = '#ffd24a';
+    for (let i = 0; i <= at; i++) { const r = nodeRect(S, stops[i].ref), pulse = 0.5 + 0.5 * Math.sin(now / 140); ctx.save(); ctx.shadowColor = gold; ctx.shadowBlur = i === at ? 20 : 8; ctx.strokeStyle = rgba(gold, i === at ? .6 + .4 * pulse : .35); ctx.lineWidth = i === at ? 3.5 : 2; ctx.strokeRect(r.x * T - 5, r.y * T + OY - (S.rooms[stops[i].ref.slice(5)] ? WH + 8 : 4), r.w * T + 10, r.h * T + (S.rooms[stops[i].ref.slice(5)] ? WH + 16 : 8)); ctx.restore(); }
+    for (let i = 0; i < legs.length; i++) if (i <= li) { const Q = legs[i]; ctx.save(); ctx.setLineDash([9, 7]); ctx.strokeStyle = rgba(gold, .5); ctx.lineWidth = 3; ctx.shadowColor = gold; ctx.shadowBlur = 10; ctx.beginPath(); ctx.moveTo(Q[0].x, Q[0].y); ctx.lineTo(Q[1].x, Q[1].y); ctx.lineTo(Q[2].x, Q[2].y); ctx.stroke(); ctx.restore(); }
+    if (t < total) { // the document itself
+      ctx.save(); ctx.translate(x, y - 6 + Math.sin(now / 150) * 2); ctx.rotate(Math.sin(now / 260) * .08); ctx.shadowColor = gold; ctx.shadowBlur = 24;
+      ctx.fillStyle = '#fff8dc'; ctx.fillRect(-13, -17, 26, 34); ctx.shadowBlur = 0; ctx.fillStyle = gold; ctx.fillRect(-13, -17, 26, 6);
+      ctx.fillStyle = '#5c4a12'; for (let i = 0; i < 4; i++) ctx.fillRect(-9, -7 + i * 6, i === 3 ? 12 : 18, 2);
+      ctx.font = `700 9px ${FONT}`; ctx.fillStyle = '#5c4a12'; ctx.textAlign = 'center'; ctx.fillText('SOP', 0, -11.5); ctx.restore();
+      ctx.save(); ctx.font = `700 12px ${FONT}`; const name = (stops[Math.min(stops.length - 1, li + (f > .5 ? 1 : 0))].name || ''), label = 'SOP → ' + name, tw = ctx.measureText(label).width + 16;
+      ctx.fillStyle = 'rgba(30,22,2,.95)'; ctx.fillRect(x - tw / 2, y - 52, tw, 20); ctx.strokeStyle = gold; ctx.strokeRect(x - tw / 2 + .5, y - 51.5, tw - 1, 19); ctx.fillStyle = gold; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, x, y - 42); ctx.restore();
+    } else { // landed in the Outbox
+      const r = S.fixed.outbox, k = (t - total) / 900, cx = (r.x + r.w / 2) * T, cy = (r.y + r.h / 2) * T + OY;
+      ctx.save(); ctx.strokeStyle = rgba(gold, 1 - k); ctx.lineWidth = 4; ctx.shadowColor = gold; ctx.shadowBlur = 24; ctx.beginPath(); ctx.arc(cx, cy, 20 + k * 90, 0, 7); ctx.stroke();
+      ctx.font = `700 14px ${FONT}`; ctx.fillStyle = rgba(gold, 1 - k * .6); ctx.textAlign = 'center'; ctx.fillText('SOP filed in the Outbox', cx - 40, cy - 60 - k * 20); ctx.restore();
+    }
+    return false;
   }
 
   function highlightRect(x, y, w, h, col) { ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = 14; ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.strokeRect(x, y, w, h); ctx.restore(); }
@@ -224,6 +278,8 @@
     if (dirty) buildStatic(S);
     ctx.save(); ctx.setTransform(cam.z, 0, 0, cam.z, cam.x, cam.y);
     ctx.drawImage(layer, 0, 0, CW, CH);
+    ui.anyBusy = ui.busy.size > 0;
+    drawRoomActivity(S, ui, now);
     for (const d of Object.values(S.desks).sort((a, b) => a.y - b.y)) drawAgentDesk(S, d, ui, now);
     // outbox badge
     if (S.outbox.length) { const r = S.fixed.outbox; ctx.save(); ctx.font = `700 13px ${FONT}`; ctx.fillStyle = '#ffd24a'; ctx.textAlign = 'right'; ctx.shadowColor = '#ffd24a'; ctx.shadowBlur = 8; ctx.fillText(String(S.outbox.length), (r.x + r.w) * T - 8, r.y * T + OY + 20); ctx.restore(); }
@@ -235,6 +291,7 @@
       const [a, b] = segs[k], f = lens[k] ? d / lens[k] : 0, x = a.x + (b.x - a.x) * f, y = a.y + (b.y - a.y) * f;
       ctx.save(); ctx.shadowColor = '#00ff88'; ctx.shadowBlur = 20; ctx.fillStyle = '#b6ffd6'; ctx.beginPath(); ctx.arc(x, y, 6, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 2.5, 0, 7); ctx.fill(); ctx.restore();
     }
+    if (ui.sop && drawSop(S, ui.sop, now)) ui.sopDone && ui.sopDone();
     // selection + tool ghosts
     const sel = ui.sel;
     if (sel && sel.type === 'room' && S.rooms[sel.id]) { const r = S.rooms[sel.id]; highlightRect(r.x * T - 9, r.y * T + OY - WH - 8, r.w * T + 18, r.h * T + WH + 17, '#eafff2'); }
@@ -253,5 +310,5 @@
     ctx.restore();
   }
 
-  window.Scene = { T, OY, CW, CH, init, invalidate, render, toWorld, zoomAt, panBy, fit, zoom: () => cam.z, hit, nodeRect, hallPath, center };
+  window.Scene = { T, OY, CW, CH, init, invalidate, render, toWorld, zoomAt, panBy, fit, zoom: () => cam.z, hit, nodeRect, hallPath, pathBetween, center, focus: (S, ref) => { const r = nodeRect(S, ref); if (!r) return; const c = center(r); cam.z = 1.6; cam.x = CW / 2 - c.x * cam.z; cam.y = CH / 2 - c.y * cam.z; } };
 })();

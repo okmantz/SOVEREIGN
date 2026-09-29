@@ -89,7 +89,7 @@ SOV.openGoal = () => {
   const go = async () => {
     if (ids.name.value.trim().length < 4) return toast('Describe your goal in a sentence.', 'error');
     try {
-      await api('POST', '/goal', { name: ids.name.value.trim(), targetCents: Math.round(ids.target.value * 100), capitalCents: Math.round(ids.capital.value * 100), riskCents: Math.round(ids.risk.value * 100) });
+      await api('POST', '/goal', { name: ids.name.value.trim(), targetCents: Math.round(ids.target.value * 100), capitalCents: Math.round(ids.capital.value * 100), riskCents: Math.round(ids.risk.value * 100), notes: ids.notes.value.trim() });
       SOV.closeModal(); SOV.goalPrompted[S.world.id] = true;
       if (!editing) { SOV.chatAgent = Object.values(SOV.S.agents).find((a) => a.role === 'director').id; SOV.openDrawer('journey'); toast('Goal saved. The Director is drafting your milestones.'); } else toast('Goal updated. Your plan is unchanged.');
     } catch (_) { /* toast shown */ }
@@ -99,6 +99,7 @@ SOV.openGoal = () => {
     SOV.field('In one sentence', ids.name = h('textarea', { rows: '2', maxlength: '160', placeholder: 'e.g. Make $5,000 a month selling digital planners on Etsy', 'aria-label': 'Your goal' }, m.name || ''), 'Be specific about what you sell or who you serve. The Director builds the plan from this.'),
     h('div', { class: 'row' }, num('target', 'Verified profit target (USD)', m.targetCents ? m.targetCents / 100 : 5000), num('capital', 'Starting capital (USD)', m.capitalCents != null ? m.capitalCents / 100 : 500)),
     num('risk', 'Most you will lose before everything stops (USD)', m.riskCents != null ? m.riskCents / 100 : 500),
+    SOV.field('Rules for the team (optional)', ids.notes = h('textarea', { rows: '2', maxlength: '500', placeholder: 'e.g. No paid ads. Only sell digital products. Never spend more than $50 on any one thing.', 'aria-label': 'Rules for the team' }, m.notes || ''), 'Every agent follows these, along with your capital and loss limit, in everything it suggests.'),
     h('p', { class: 'muted', style: 'margin:0' }, 'Only revenue confirmed by a connected payment source counts. You approve the plan; the Director does the work.'),
     h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: go }, editing ? 'Save' : 'Save goal and start'), editing ? h('button', { class: 'btn', onclick: SOV.closeModal }, 'Cancel') : null)),
     { onClose: () => {} });

@@ -135,22 +135,27 @@ function money() {
 
 // ---------- Outbox ----------
 function outbox() {
-  const S = SOV.S;
-  return h('div', { class: 'stack' }, S.outbox.length ? S.outbox.map((o) => h('div', { class: 'card' }, h('div', { class: 'row' }, h('strong', {}, o.title), h('span', { class: 'pill ' + (o.status === 'blocked' ? 'bad' : 'ok') }, o.status)),
-    h('div', { class: 'muted' }, new Date(o.at).toLocaleString() + (o.fromRoom ? ' · ' + o.fromRoom : '')), h('pre', {}, String(o.content).slice(0, 1400)),
-    h('button', { class: 'btn small', onclick: () => navigator.clipboard.writeText(o.content).then(() => toast('Copied.')) }, 'Copy'))) : h('p', { class: 'muted' }, 'Finished work lands here as real results, not chat scrollback.'));
+  const S = SOV.S, download = (o) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([o.content], { type: 'text/markdown' })); a.download = 'business-sop.md'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
+  const items = S.outbox.slice(), pin = items.findIndex((o) => o.kind === 'sop'); if (pin > 0) items.unshift(items.splice(pin, 1)[0]); // the SOP always sits at the top
+  return h('div', { class: 'stack' }, S.outbox.length ? items.map((o) => { const sop = o.kind === 'sop';
+    return h('div', { class: 'card' + (sop ? ' sop-card' : '') }, h('div', { class: 'row' }, h('strong', {}, sop ? '📄 ' + o.title : o.title), h('span', { class: 'pill ' + (o.status === 'blocked' ? 'bad' : 'ok') }, sop ? 'SOP' : o.status)),
+      h('div', { class: 'muted' }, new Date(o.at).toLocaleString() + (o.fromRoom ? ' · ' + o.fromRoom : '')),
+      sop ? h('details', { open: true }, h('summary', {}, 'Read the SOP'), h('pre', {}, String(o.content))) : h('pre', {}, String(o.content).slice(0, 1400)),
+      o.meta && o.meta.files ? h('div', { class: 'row' }, h('span', { class: 'chip' }, 'built ' + o.meta.files.length + ' file' + (o.meta.files.length > 1 ? 's' : '')), h('a', { class: 'btn small primary', href: o.meta.preview, target: '_blank', rel: 'noopener' }, 'Open the site')) : null,
+      h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: () => navigator.clipboard.writeText(o.content).then(() => toast('Copied.')) }, 'Copy'),
+        sop ? [h('button', { class: 'btn small', onclick: () => download(o) }, 'Download .md'), h('button', { class: 'btn small', onclick: () => { SOV.closeDrawer(); api('POST', '/sop/replay').catch(() => {}); } }, 'Replay the flight')] : null)); }) : h('p', { class: 'muted' }, 'Finished work lands here as real results, not chat scrollback.'));
 }
 
 // ---------- Settings ----------
 let draft = null;
-const fresh = () => { const st = SOV.S.settings; draft = { provider: st.provider.name, model: st.provider.model, ollamaHost: st.ollama.host, keepAlive: st.ollama.keepAlive, numCtx: st.ollama.numCtx, par: st.concurrency.ollama, intro: st.intro, baseUrl: st.openaiCompat.baseUrl, key: '', policy: { ...st.policy }, budgets: { ...st.budgets }, models: null }; };
+const fresh = () => { const st = SOV.S.settings; draft = { provider: st.provider.name, model: st.provider.model, ollamaHost: st.ollama.host, keepAlive: st.ollama.keepAlive, numCtx: st.ollama.numCtx, par: st.concurrency.ollama, parOther: st.concurrency.other, speed: st.speed || 'fast', autoDelegate: st.autoDelegate !== false, autoContinue: st.autoContinue !== false, waitMinutes: st.waitMinutes == null ? 10 : st.waitMinutes, intro: st.intro, baseUrl: st.openaiCompat.baseUrl, key: '', policy: { ...st.policy }, budgets: { ...st.budgets }, models: null }; };
 function settings() {
   const S = SOV.S, st = S.settings; if (!draft) fresh();
   const d = draft, rerender = () => { SOV.drawerDirty = false; SOV.render(); };
   const providerLabels = { mock: 'Offline demo (no key)', openrouter: 'OpenRouter', ollama: 'Ollama (local models)', openai: 'OpenAI-compatible' };
   const saveAll = async () => {
     if (d.key) await api('POST', '/secrets', { name: d.provider === 'openai' ? 'openai' : 'openrouter', value: d.key });
-    await api('POST', '/settings', { provider: { name: d.provider, model: d.model }, ollama: { host: d.ollamaHost, keepAlive: d.keepAlive, numCtx: d.numCtx }, concurrency: { ollama: d.par }, intro: d.intro, openaiCompat: { baseUrl: d.baseUrl },
+    await api('POST', '/settings', { provider: { name: d.provider, model: d.model }, ollama: { host: d.ollamaHost, keepAlive: d.keepAlive, numCtx: d.numCtx }, concurrency: { ollama: d.par, other: d.parOther }, speed: d.speed, autoDelegate: d.autoDelegate, autoContinue: d.autoContinue, waitMinutes: d.waitMinutes, intro: d.intro, openaiCompat: { baseUrl: d.baseUrl },
       policy: { directorStructure: d.policy.directorStructure, connectorWrites: d.policy.connectorWrites }, budgets: d.budgets });
     d.key = '';
   };
@@ -181,6 +186,12 @@ function settings() {
     ...providerBox,
     h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: async () => { try { await saveAll(); toast('Settings saved.'); } catch (_) {} } }, 'Save'),
       h('button', { class: 'btn', onclick: async () => { try { await saveAll(); toast('Testing the model…'); const r = await api('POST', '/provider/test'); toast(`Model replied in ${(r.ms / 1000).toFixed(1)}s (${r.model}): ${r.reply}`); } catch (_) {} } }, 'Save and test')),
+    h('h3', {}, 'Speed and autonomy'),
+    SOV.field('Output length', h('select', { onchange: (e) => { d.speed = e.target.value; }, value: d.speed }, h('option', { value: 'fast' }, 'Fast (short, dense deliverables)'), h('option', { value: 'balanced' }, 'Balanced'), h('option', { value: 'thorough' }, 'Thorough (longest, slowest)')), 'Waiting time is mostly output length. Fast is the default.'),
+    h('div', { class: 'row' }, SOV.field('Agents at once (cloud models)', h('input', { type: 'number', min: '1', max: '16', value: d.parOther, onchange: (e) => { d.parOther = +e.target.value; } }), 'How many agents may call the model at the same time.')),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: d.autoDelegate, onchange: (e) => { d.autoDelegate = e.target.checked; } }), h('span', {}, 'The Director keeps idle agents busy', h('small', {}, 'Hands out extra drafts and analysis. Never sends, posts or spends.'))),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: d.autoContinue, onchange: (e) => { d.autoContinue = e.target.checked; } }), h('span', {}, 'Keep working until the goal is reached', h('small', {}, 'When a round finishes, the Director plans the next one. Stops only when verified profit reaches the target.'))),
+    SOV.field('Move on if only you can unblock a step, after (minutes)', h('input', { type: 'number', min: '0', max: '240', value: d.waitMinutes, onchange: (e) => { d.waitMinutes = +e.target.value; } }), 'The step stays on your Needs-you list and runs as soon as you have done it.'),
     h('h3', {}, 'Guardrails'),
     SOV.field('Director structural changes', h('select', { onchange: (e) => { d.policy.directorStructure = e.target.value; }, value: d.policy.directorStructure }, h('option', { value: 'ask' }, 'Ask me first (recommended)'), h('option', { value: 'auto' }, 'Let the Director apply plans')), 'Assigning work to agents never needs approval. Creating or removing agents, rooms and hallways does.'),
     SOV.field('Emails, messages, pages, files, rows and events', h('select', { onchange: (e) => { d.policy.connectorWrites = e.target.value; }, value: d.policy.connectorWrites }, h('option', { value: 'ask' }, 'Ask me before each one (recommended)'), h('option', { value: 'auto' }, 'Send automatically'))),
@@ -215,6 +226,7 @@ function taskRow(S, t, { editable = false, run = false } = {}) {
   const st = STATUS[t.status] || STATUS.todo;
   return h('div', {}, h('div', { class: 'trow' }, h('span', { class: 'chip' }, roleLabel(S, t.role)), h('span', { class: 'tt' }, t.title),
     ...t.requires.map((k) => h('span', { class: 'chip req', title: 'Needs this connected to run' }, kindLabel(S, k))), t.owner === 'human' ? h('span', { class: 'chip human' }, 'you') : null,
+    run && t.agentName && ['running', 'done'].includes(t.status) ? h('span', { class: 'chip', title: 'Who did or is doing this' }, t.agentName) : null,
     run ? h('span', { class: 'pill ' + (t.status === 'done' ? 'ok' : t.status === 'failed' || t.status === 'blocked' ? 'bad' : t.status === 'running' || t.status === 'needs_you' ? 'warn' : ''), title: t.reason || t.error || '' }, st[1]) : null,
     editable ? h('button', { class: 'rx', 'aria-label': 'Remove this task', title: 'Remove this task', onclick: () => api('POST', `/journey/task/${t.id}/remove`).catch(() => {}) }, '×') : null),
     run && t.result ? h('details', { class: 'res' }, h('summary', {}, 'Result'), h('pre', {}, t.result), h('button', { class: 'btn small', onclick: () => SOV.openDrawer('outbox') }, 'Open the Outbox')) : null);
@@ -223,6 +235,38 @@ function msCard(S, ms, opts) {
   return h('div', { class: 'ms ' + (ms.status === 'done' ? 'done' : ms.status === 'active' ? 'active' : '') },
     h('div', { class: 'ms-head' }, h('strong', {}, ms.title), h('span', { class: 'chip' }, `~${ms.days} days`), opts.run ? h('span', { class: 'pill ' + (ms.status === 'done' ? 'ok' : ms.status === 'active' ? 'warn' : '') }, ms.status === 'todo' ? 'later' : ms.status) : null),
     ms.why ? h('div', { class: 'muted', style: 'margin:2px 0 0;font-size:12px' }, ms.why) : null, ms.tasks.map((t) => taskRow(S, t, opts)));
+}
+
+// ---------- strategy, memory, site (Journey helpers) ----------
+function ladderCard(S) {
+  const st = S.journey.strategy; if (!st) return null;
+  return h('div', {}, h('h3', {}, 'The Director\'s strategy: a capital ladder'), h('p', { class: 'sub', style: 'margin:0 0 6px' }, st.rule),
+    h('div', { class: 'ladder' }, st.stages.map((x, i) => h('div', { class: 'rung ' + x.status }, h('div', { class: 'row' }, h('b', {}, `${i + 1}. ${x.title}`), h('span', { class: 'pill ' + (x.status === 'active' ? 'ok' : x.status === 'done' ? '' : 'warn') }, x.status === 'active' ? 'now' : x.status === 'done' ? 'done' : 'next')),
+      h('div', { class: 'muted', style: 'font-size:12px;margin:2px 0' }, x.thesis), h('div', { style: 'font-size:12px' }, `Move up at ${usd(x.targetCents)} verified profit` + (x.budgetNowCents != null ? ` · budget ${usd(x.budgetNowCents)}` : ' · budget set from verified profit'))))));
+}
+function memoryCard(S) {
+  const m = S.journey.memory; if (!m) return null; const has = m.brief || m.decisions.length || m.handoffs.length;
+  const note = h('input', { type: 'text', placeholder: 'Add a rule the whole team must follow…', maxlength: '300', 'aria-label': 'Team rule' });
+  const add = async () => { if (!note.value.trim()) return; try { await api('POST', '/memory/note', { text: note.value }); note.value = ''; } catch (_) {} };
+  note.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+  return h('div', {}, h('h3', {}, 'Team memory (every agent reads this)'),
+    h('div', { class: 'card' }, m.brief ? h('div', { class: 'mem-line' }, h('b', {}, 'Brief: '), m.brief) : null,
+      ...m.decisions.slice().reverse().map((d) => h('div', { class: 'mem-line' }, '✓ ', d.text, ' ', h('small', {}, d.by))),
+      m.spendPlan && m.spendPlan.items.length ? h('div', { class: 'mem-line' }, h('b', {}, `Spend plan ${usd(m.spendPlan.totalCents)} of ${usd(m.spendPlan.budgetCents)}: `), m.spendPlan.items.map((i) => `${i.item} ${usd(i.costCents)}`).join(' · ')) : null,
+      !has ? h('div', { class: 'muted' }, 'Fills as the team works: decisions, handoffs and the spend plan.') : null,
+      h('div', { class: 'mem-line' }, h('small', {}, `Available to spend now: ${usd(m.budget.availableCents)} · this stage: ${usd(m.budget.stageCents)}`))),
+    m.ownerNotes.length ? h('div', { class: 'card', style: 'margin-top:6px' }, h('strong', { style: 'font-size:12px' }, 'Your rules'), ...m.ownerNotes.map((n) => h('div', { class: 'mem-line' }, n.text, ' ', h('button', { class: 'rx', style: 'background:none;border:0;color:var(--muted);cursor:pointer', 'aria-label': 'Remove rule', onclick: () => api('POST', '/memory/note/remove', { text: n.text }).catch(() => {}) }, '×')))) : null,
+    h('div', { class: 'row', style: 'margin-top:6px' }, note, h('button', { class: 'btn small', onclick: add }, 'Add rule')));
+}
+function siteCard(S) {
+  const site = S.site; if (!site) return null; const prods = site.products || [], draft = {};
+  return h('div', {}, h('h3', {}, 'Your website (built for free)'),
+    h('div', { class: 'card' }, h('div', { class: 'row' }, h('a', { class: 'btn small primary', href: site.preview, target: '_blank', rel: 'noopener' }, 'Open live preview'), h('span', { class: 'muted' }, `${site.files.length} file${site.files.length === 1 ? '' : 's'}: ${site.files.slice(0, 6).join(', ')}`)),
+      site.folder ? h('div', { class: 'muted', style: 'margin:6px 0;font-size:12px' }, 'Saved in: ', h('code', {}, site.folder)) : null,
+      h('p', { class: 'muted', style: 'margin:6px 0;font-size:12px' }, 'To put it online for free: drag that folder onto Cloudflare Pages (Direct Upload) or Netlify Drop, or push it to a GitHub Pages repo. Free hosts serve static files only, so checkout is a hosted payment page: paste a link per product below (a payment link, Gumroad, Etsy or a Shopify checkout).'),
+      prods.length ? [h('strong', { style: 'font-size:12px' }, 'Buy links'), ...prods.map((p) => h('div', { class: 'row', style: 'margin:4px 0' }, h('span', { style: 'min-width:110px;font-size:12px' }, p.name + (p.price ? ' · $' + p.price : '')), h('input', { type: 'text', placeholder: 'https://… checkout link', value: (site.links || {})[p.id] || '', 'aria-label': 'Buy link for ' + p.name, oninput: (e) => { draft[p.id] = e.target.value; } }))),
+        h('button', { class: 'btn small', onclick: async () => { try { await api('POST', '/site/links', { links: { ...(site.links || {}), ...draft } }); toast('Buy links saved. Refresh the preview.'); } catch (_) {} } }, 'Save buy links')]
+        : h('div', { class: 'row', style: 'margin-top:6px' }, h('input', { type: 'text', placeholder: 'https://… your checkout link', value: (site.links || {}).main || '', 'aria-label': 'Main buy link', oninput: (e) => { draft.main = e.target.value; } }), h('button', { class: 'btn small', onclick: async () => { try { await api('POST', '/site/links', { links: { ...(site.links || {}), ...draft } }); toast('Saved. Refresh the preview.'); } catch (_) {} } }, 'Save'))));
 }
 
 // ---------- Journey ----------
@@ -244,6 +288,7 @@ function journeyPanel() {
           h('input', { type: 'number', min: '1', max: '90', value: m.days, 'aria-label': 'Target days', title: 'Target days', oninput: (e) => { m.days = +e.target.value; } }),
           h('button', { class: 'btn small', 'aria-label': 'Remove milestone', onclick: () => { msDraft.splice(i, 1); redraw(); } }, '×'),
           h('textarea', { 'aria-label': 'Why this milestone matters', placeholder: 'Why this milestone matters', oninput: (e) => { m.why = e.target.value; } }, m.why)))),
+        ladderCard(S),
         h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => { msDraft.push({ title: 'New milestone', why: '', days: 7 }); redraw(); } }, 'Add a milestone'),
           h('button', { class: 'btn', onclick: () => api('POST', '/journey/milestones/generate').catch(() => {}) }, 'Ask the Director to redraft')),
         h('button', { class: 'btn primary', onclick: async () => { try { await api('POST', '/journey/milestones/save', { milestones: msDraft }); await api('POST', '/journey/milestones/approve'); } catch (_) { SOV.refresh(); } } }, 'Approve milestones and build the roadmap →'));
@@ -253,7 +298,7 @@ function journeyPanel() {
     if (j.busy === 'roadmap' || !rm) kids.push(busyCard('The Director is building your roadmap…'));
     else {
       const needs = rm.requirements;
-      kids.push(h('div', { class: 'card' }, rm.summary), ...rm.milestones.map((m) => msCard(S, m, { editable: true })),
+      kids.push(rm.tailoring ? busyCard('The Director is tailoring each task to your goal. You can already read and approve the plan.') : null, h('div', { class: 'card' }, rm.summary), ...rm.milestones.map((m) => msCard(S, m, { editable: true })),
         h('h3', {}, 'What this plan needs from you'),
         needs.length ? h('div', { class: 'row' }, needs.map((r) => h('span', { class: 'chip ' + (r.blocking ? 'req' : ''), title: r.why }, kindLabel(S, r.kind) + (r.blocking ? ' (needed)' : ' (recommended)')))) : h('p', { class: 'sub' }, 'No integrations. This plan needs nothing but the model.'),
         h('p', { class: 'settings-note', style: 'margin:0' }, 'Nothing is asked for that a task does not use. Remove a task above and its requirement goes with it.'),
@@ -278,18 +323,25 @@ function journeyPanel() {
       blockingLeft.length ? h('p', { class: 'settings-note', style: 'margin:0' }, `Tasks needing ${blockingLeft.map((r) => r.label).join(', ')} will wait until you connect ${blockingLeft.length > 1 ? 'them' : 'it'}. Everything else runs.`) : null);
   } else if (j.stage === 'run' && rm) {
     const pr = j.progress, paused = rm.paused;
-    kids.push(h('h3', {}, rm.status === 'done' ? 'Roadmap complete' : 'Step 5 · Running'),
+    if (j.achieved) kids.push(h('div', { class: 'card banner-ok' }, h('strong', {}, 'Goal reached'), h('p', { style: 'margin:4px 0 0' }, j.decision ? j.decision.reason : 'Verified profit reached the target.'), h('p', { class: 'muted', style: 'margin:4px 0 0' }, 'Raise the target in Edit goal and the Director carries on from here.')));
+    else if (rm.status === 'done' && j.decision) kids.push(h('div', { class: 'card' }, h('strong', {}, 'Round complete. The goal is not reached yet.'), h('p', { style: 'margin:4px 0 0' }, j.decision.reason)));
+    if (j.busy === 'cycle') kids.push(busyCard('Goal not reached yet. The Director is planning the next round…'));
+    kids.push(h('h3', {}, j.achieved ? 'Goal reached' : rm.status === 'done' ? 'Round complete' : 'Step 5 · Running' + (j.cycle ? ` · round ${j.cycle + 1}` : '')),
       h('div', { class: 'card' }, h('div', { class: 'bar', style: 'margin-bottom:8px' }, h('i', { style: `width:${pr.pct}%` })), h('div', { class: 'row' }, h('strong', {}, `${pr.done} of ${pr.total} tasks done`),
-        rm.status === 'running' ? (paused ? h('button', { class: 'btn small primary', onclick: () => api('POST', '/journey/resume').catch(() => {}) }, 'Resume') : h('button', { class: 'btn small', onclick: () => api('POST', '/journey/pause').catch(() => {}) }, 'Pause')) : null,
-        rm.status === 'done' ? h('button', { class: 'btn small primary', onclick: () => api('POST', '/journey/replan').catch(() => {}) }, 'Plan the next phase') : null),
+        rm.status === 'running' || (paused && rm.status !== 'achieved') ? (paused ? h('button', { class: 'btn small primary', onclick: () => api('POST', '/journey/resume').catch(() => {}) }, 'Resume') : h('button', { class: 'btn small', onclick: () => api('POST', '/journey/pause').catch(() => {}) }, 'Pause')) : null,
+        rm.status === 'done' && !j.achieved ? h('button', { class: 'btn small primary', onclick: () => api('POST', '/journey/replan', { advance: !!(j.decision && j.decision.action === 'advance') }).catch(() => {}) }, 'Plan the next phase') : null),
         paused && rm.pauseReason ? h('div', { class: 'muted', style: 'margin-top:6px' }, rm.pauseReason) : null));
     if (j.needsYou.length) kids.push(h('h3', {}, 'Needs you'), ...j.needsYou.map((n) => h('div', { class: 'card needs' }, h('strong', {}, n.title), h('div', { class: 'muted', style: 'margin:3px 0 8px' }, n.milestone + ' · ' + n.detail),
-      h('div', { class: 'row' }, n.kind === 'human' ? h('button', { class: 'btn small primary', onclick: () => api('POST', `/journey/task/${n.taskId}/done`).catch(() => {}) }, 'I did this') : null,
-        n.kind === 'blocked' ? h('button', { class: 'btn small primary', onclick: () => openConnector(n.connect) }, 'Connect ' + kindLabel(S, n.connect)) : null,
-        n.kind === 'failed' ? h('button', { class: 'btn small primary', onclick: () => api('POST', `/journey/task/${n.taskId}/retry`).catch(() => {}) }, 'Retry') : null,
-        h('button', { class: 'btn small', onclick: () => api('POST', `/journey/task/${n.taskId}/skip`).catch(() => {}) }, 'Skip')))));
+      h('div', { class: 'row' }, n.kind === 'human' ? h('button', { class: 'btn small primary', onclick: () => api('POST', n.carry ? `/journey/carry/${n.carry}/done` : `/journey/task/${n.taskId}/done`).catch(() => {}) }, 'I did this') : null,
+        n.kind === 'blocked' && n.connect ? h('button', { class: 'btn small primary', onclick: () => openConnector(n.connect) }, 'Connect ' + kindLabel(S, n.connect)) : null,
+        n.kind === 'failed' ? h('button', { class: 'btn small primary', onclick: () => api('POST', n.carry ? `/journey/carry/${n.carry}/retry` : `/journey/task/${n.taskId}/retry`).catch(() => {}) }, 'Retry') : null,
+        n.carry ? h('button', { class: 'btn small', onclick: () => api('POST', `/journey/carry/${n.carry}/done`).catch(() => {}) }, 'Dismiss') : h('button', { class: 'btn small', onclick: () => api('POST', `/journey/task/${n.taskId}/skip`).catch(() => {}) }, 'Skip')))));
+    kids.push(ladderCard(S), memoryCard(S), siteCard(S));
+    if (j.extras && j.extras.length) kids.push(h('h3', {}, 'Extra work the Director handed out'), h('p', { class: 'sub', style: 'margin:0 0 4px' }, 'Idle agents get useful drafts and analysis so nobody waits.'),
+      h('div', { class: 'card' }, ...j.extras.slice(0, 8).map((x) => h('div', { class: 'trow' }, h('span', { class: 'chip' }, roleLabel(S, x.role)), h('span', { class: 'tt' }, x.title), x.agentName ? h('span', { class: 'chip' }, x.agentName) : null, h('span', { class: 'pill ' + (x.status === 'done' ? 'ok' : x.status === 'failed' ? 'bad' : x.status === 'running' ? 'warn' : '') }, x.status === 'running' ? 'working' : x.status)))));
+    if (j.cycles && j.cycles.length) kids.push(h('h3', {}, 'Earlier rounds'), h('div', { class: 'card' }, ...j.cycles.map((c) => h('div', { class: 'mem-line' }, h('b', {}, 'Round ' + c.n), ` · ${c.tasksDone} tasks + ${c.extras} extras · net ${usd(c.netCents)}`, c.decision ? h('small', {}, ' · then: ' + c.decision) : null))));
     kids.push(h('h3', {}, 'Roadmap'), ...rm.milestones.map((m) => msCard(S, m, { run: true })),
-      h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'btn small', onclick: SOV.openGoal }, 'Edit goal'), h('button', { class: 'btn small', onclick: () => { if (confirm('Plan again toward the same goal? Your team and rooms stay.')) api('POST', '/journey/replan').catch(() => {}); } }, 'Re-plan')));
+      h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'btn small', onclick: SOV.openGoal }, 'Edit goal'), h('button', { class: 'btn small', onclick: () => { if (confirm('Plan another round toward the same goal? Your team, rooms and team memory stay.')) api('POST', '/journey/replan').catch(() => {}); } }, 'Re-plan')));
   }
   return h('div', { class: 'stack' }, ...kids);
 }

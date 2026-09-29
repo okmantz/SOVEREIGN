@@ -34,6 +34,7 @@ let rt = null; function scheduleRefresh() { clearTimeout(rt); rt = setTimeout(re
 async function refresh() {
   const S = await (await fetch('/api/state', { headers: SOV.world ? { 'x-world': SOV.world } : {} })).json();
   SOV.world = S.world.id; SOV.S = S; window.Scene.invalidate(); // the server falls back to a real world if ours was deleted
+  SOV.busy = new Map((S.activity || []).map((a) => [a.agentId, { since: a.since, title: a.title }])); // the server knows who is really working
   const d = Object.values(SOV.S.agents).find((a) => a.role === 'director');
   if (!SOV.S.agents[SOV.chatAgent]) SOV.chatAgent = d && d.id;
   if (SOV.sel && ['room', 'desk', 'agent', 'hallway', 'connector'].includes(SOV.sel.type)) {
@@ -45,9 +46,14 @@ async function refresh() {
 SOV.refresh = refresh;
 const es = new EventSource('/api/events');
 ['state', 'ledger', 'approval', 'outbox'].forEach((t) => es.addEventListener(t, scheduleRefresh));
-es.addEventListener('handoff', (e) => { const ev = JSON.parse(e.data), hw = SOV.S && SOV.S.hallways[ev.hallwayId], p = hw && window.Scene.hallPath(SOV.S, hw); if (p) SOV.pulses.push({ p, t0: performance.now(), dur: 1100 }); });
-es.addEventListener('run.start', (e) => { SOV.busy.set(JSON.parse(e.data).agentId, Date.now()); renderChat(); });
-es.addEventListener('run.done', (e) => { const id = JSON.parse(e.data).agentId; SOV.busy.delete(id); delete SOV.stream[id]; scheduleRefresh(); });
+es.addEventListener('handoff', (e) => { // a hallway lights up; a handoff with no hallway (inputs flowing between teammates, work landing in the Outbox) draws its own lane
+  const ev = JSON.parse(e.data), S = SOV.S; if (!S || (ev.worldId && ev.worldId !== S.world.id)) return;
+  const hw = ev.hallwayId && S.hallways[ev.hallwayId], p = hw ? window.Scene.hallPath(S, hw) : window.Scene.pathBetween(S, ev.from, ev.to); if (p) SOV.pulses.push({ p, t0: performance.now(), dur: 1100 }); });
+es.addEventListener('run.start', (e) => { const ev = JSON.parse(e.data); if (ev.worldId && SOV.S && ev.worldId !== SOV.S.world.id) return; SOV.busy.set(ev.agentId, { since: Date.now(), title: ev.title || 'Working' }); renderChat(); renderLive(); });
+es.addEventListener('run.done', (e) => { const ev = JSON.parse(e.data); SOV.busy.delete(ev.agentId); delete SOV.stream[ev.agentId]; renderLive(); scheduleRefresh(); });
+es.addEventListener('sop.route', (e) => { // the business SOP flies through the rooms, then lands in the Outbox
+  const ev = JSON.parse(e.data), S = SOV.S; if (!S || (ev.worldId && ev.worldId !== S.world.id)) return;
+  window.Scene.fit(); SOV.sop = { route: ev.route, t0: performance.now(), title: ev.title }; toast('The Director is sending the business SOP through the rooms to your Outbox.'); });
 es.addEventListener('token', (e) => { const ev = JSON.parse(e.data); SOV.stream[ev.agentId] = ev.text; renderChat(); }); // live text while a local model is answering
 es.addEventListener('notice', (e) => { const ev = JSON.parse(e.data); toast(ev.text, ev.kind === 'error' ? 'error' : ''); if (ev.kind === 'ok') scheduleRefresh(); });
 
@@ -187,6 +193,23 @@ function renderHint() {
     Object.entries(SOV.S.roomKinds).filter(([k]) => k !== 'bridge').map(([k, v]) => h('option', { value: k }, v.label)))));
 }
 
+// ---------- live board: who is doing what right now ----------
+const live = h('div', { id: 'live', 'aria-live': 'polite' }); $('#view').append(live);
+function renderLive() {
+  const S = SOV.S; if (!S) return;
+  const crew = Object.values(S.agents).filter((a) => a.deskId), work = crew.filter((a) => SOV.busy.has(a.id)), idle = crew.filter((a) => !SOV.busy.has(a.id) && a.role !== 'director');
+  if (crew.length < 2) { live.hidden = true; return; } live.hidden = false; const now = Date.now(), open = SOV.liveOpen == null ? window.innerWidth >= 1750 : SOV.liveOpen;
+  const head = h('button', { class: 'live-head', type: 'button', 'aria-expanded': String(open), title: 'Show or hide who is working', onclick: () => { SOV.liveOpen = !open; renderLive(); } },
+    h('i', { class: 'ld' + (work.length ? ' on' : '') }), h('b', {}, work.length ? `${work.length} working` : 'Nobody working'), h('span', { class: 'muted' }, idle.length ? ` · ${idle.length} idle` : ' · all busy'), h('span', { class: 'muted', style: 'margin-left:auto' }, open ? '▾' : '▸'));
+  if (!open) { live.replaceChildren(head); return; }
+  live.replaceChildren(...[head, ...work.slice(0, 8).map((a) => { const j = SOV.busy.get(a.id), secs = Math.max(0, Math.floor((now - j.since) / 1000));
+      return h('button', { class: 'live-row on', type: 'button', title: a.name + ': ' + j.title, onclick: () => { SOV.select({ type: 'agent', id: a.id }); const d = S.desks[a.deskId]; if (d && S.rooms[d.roomId]) window.Scene.focus(S, 'room:' + d.roomId); } },
+        window.Avatar.canvas(a.avatar, 1, window.Avatar.frameFor(a.id, performance.now(), true)), h('span', { class: 'lr-t' }, h('b', {}, a.name), h('small', {}, String(j.title).replace(/^[^·]*·\s*/, ''))), h('span', { class: 'lr-s' }, secs + 's')); }),
+    work.length > 8 ? h('div', { class: 'muted', style: 'font-size:11px;padding:2px 4px' }, `+${work.length - 8} more`) : null,
+    idle.length ? h('div', { class: 'live-idle' }, idle.slice(0, 6).map((a) => h('span', { class: 'chip', title: a.name + ' is idle' }, a.name)), idle.length > 6 ? h('span', { class: 'chip' }, '+' + (idle.length - 6)) : null) : null].filter(Boolean));
+}
+SOV.renderLive = renderLive; setInterval(renderLive, 1000);
+
 // ---------- zoom controls ----------
 (function zoomControls() {
   const box = h('div', { id: 'zoom' }, h('button', { class: 'btn small', 'aria-label': 'Zoom in', onclick: () => zoomCenter(1.25) }, '+'), h('button', { class: 'btn small', 'aria-label': 'Zoom out', onclick: () => zoomCenter(0.8) }, '−'),
@@ -233,14 +256,16 @@ function renderGuide() {
   else if (j.stage === 'milestones') msg = j.busy ? [spin(), 'The Director is drafting milestones…'] : 'Review the milestones. Edit anything, then approve.';
   else if (j.stage === 'roadmap') msg = j.busy ? [spin(), 'The Director is building your roadmap…'] : 'Review the roadmap and approve it to continue.';
   else if (j.stage === 'setup') { const left = j.setup ? j.setup.requirements.filter((r) => r.blocking && r.status === 'needs_setup').length : 0; msg = left ? `Connect what the plan needs (${left} left), or skip and continue.` : 'Everything the plan needs is ready. Start the team when you are.'; cta = 'Set up'; }
-  else if (rm && rm.paused) { msg = 'Paused. ' + (rm.pauseReason || ''); cta = 'Resume'; tone = 'warn'; }
+  else if (j.achieved) { msg = 'Goal reached. The team has stood down.'; cta = 'See results'; }
+  else if (j.busy === 'cycle') msg = [spin(), 'Goal not reached yet. The Director is planning the next round…'];
+  else if (rm && rm.paused) { msg = 'Paused. ' + (rm.pauseReason || ''); cta = rm.pauseKind === 'model' || rm.pauseKind === 'budget' ? 'Resume now' : 'Resume'; tone = 'warn'; }
   else if (j.needsYou.length) { msg = `${j.needsYou.length} thing${j.needsYou.length > 1 ? 's' : ''} need${j.needsYou.length > 1 ? '' : 's'} you. The team keeps going on everything else.`; cta = 'See what'; tone = 'warn'; }
-  else if (rm && rm.status === 'done') { msg = 'The roadmap is complete.'; cta = 'Plan next phase'; }
-  else msg = [spin(), `The team is working · ${pr.done} of ${pr.total} tasks done`];
+  else if (rm && rm.status === 'done') { msg = 'This round is complete. The goal is not reached yet.'; cta = 'Plan next phase'; }
+  else { const n = (S.activity || []).length; msg = [spin(), `${n ? n + ' agent' + (n > 1 ? 's' : '') + ' working now' : 'The team is working'} · ${pr.done} of ${pr.total} tasks done${j.cycle ? ' · round ' + (j.cycle + 1) : ''}`]; }
   g.hidden = false; g.className = 'guide ' + tone;
   g.replaceChildren(h('div', { class: 'g-steps' }, STEPS.map(([id, label], i) => h('span', { class: 'g-step' + (i < idx || (id === 'run' && rm && rm.status === 'done') ? ' done' : i === idx ? ' on' : '') }, h('i', {}, i < idx ? '✓' : i + 1), label))),
     h('div', { class: 'g-msg' }, msg), ...(j.stage === 'run' && pr ? [h('span', { class: 'bar g-bar', title: pr.pct + '%' }, h('i', { style: `width:${pr.pct}%` }))] : []),
-    h('button', { class: 'btn small primary', onclick: () => { if (j.stage === 'goal') SOV.openGoal(); else if (rm && rm.paused && j.stage === 'run') api('POST', '/journey/resume').catch(() => {}); else if (rm && rm.status === 'done') api('POST', '/journey/replan').then(() => SOV.openDrawer('journey')).catch(() => {}); else SOV.openDrawer('journey'); } }, cta));
+    h('button', { class: 'btn small primary', onclick: () => { if (j.stage === 'goal') SOV.openGoal(); else if (rm && rm.paused && j.stage === 'run' && !j.achieved) api('POST', '/journey/resume').catch(() => {}); else if (rm && rm.status === 'done' && !j.achieved) api('POST', '/journey/replan', { advance: !!(j.decision && j.decision.action === 'advance') }).then(() => SOV.openDrawer('journey')).catch(() => {}); else SOV.openDrawer('journey'); } }, cta));
 }
 
 // ---------- drawer ----------
@@ -308,7 +333,7 @@ async function sendChat() {
 // ---------- boot ----------
 function renderAll() {
   const S = SOV.S; if (!S) return;
-  renderHeader(); renderGuide(); renderRail(); renderToolbar(); renderHint(); renderDrawer(); renderChat();
+  renderHeader(); renderGuide(); renderRail(); renderToolbar(); renderHint(); renderDrawer(); renderChat(); renderLive();
   // After the intro, and only if no goal is saved yet, ask for it. Once saved it never appears again.
   if (SOV.introDone && !S.mission && S.journey.stage === 'goal' && !SOV.goalPrompted[S.world.id] && $('#modal').hidden) { SOV.goalPrompted[S.world.id] = true; SOV.openGoal(); }
 }
@@ -316,7 +341,7 @@ SOV.render = renderAll;
 function frame(now) {
   requestAnimationFrame(frame);
   if (!SOV.S) return;
-  window.Scene.render(now, SOV.S, { sel: SOV.sel, tool: SOV.tool, linkFrom, drag, dragRect, mouse, hover, busy: SOV.busy, pulses: SOV.pulses, chatAgent: SOV.chatAgent });
+  window.Scene.render(now, SOV.S, { sop: SOV.sop, sopDone: () => { if (SOV.sop) { SOV.sop = null; scheduleRefresh(); } }, sel: SOV.sel, tool: SOV.tool, linkFrom, drag, dragRect, mouse, hover, busy: SOV.busy, pulses: SOV.pulses, chatAgent: SOV.chatAgent });
 }
 (async function boot() {
   const first = await (await fetch('/api/state')).json();
