@@ -1,0 +1,87 @@
+{
+  "name": "SaaS World",
+  "business_models": [
+    "saas",
+    "api"
+  ],
+  "integrations": [
+    "stripe",
+    "resend",
+    "github",
+    "vercel"
+  ],
+  "roles": [
+    {
+      "role": "CEO",
+      "purpose": "Manages the business: strategy, selection, kill/pivot/scale",
+      "level": 0
+    },
+    {
+      "role": "CFO",
+      "purpose": "Budgets, runway, unit economics, spend authorization",
+      "level": 0
+    },
+    {
+      "role": "Product Manager",
+      "purpose": "MVP scope, roadmap",
+      "level": 1
+    },
+    {
+      "role": "Developer",
+      "purpose": "Build, test, deploy",
+      "level": 2
+    },
+    {
+      "role": "Designer",
+      "purpose": "UI, landing page, brand",
+      "level": 1
+    },
+    {
+      "role": "DevOps",
+      "purpose": "Deploy, monitor, incident response",
+      "level": 2
+    },
+    {
+      "role": "Marketing",
+      "purpose": "Acquisition channels",
+      "level": 2
+    },
+    {
+      "role": "Sales",
+      "purpose": "Outbound and demos",
+      "level": 2
+    },
+    {
+      "role": "Support",
+      "purpose": "Onboarding, tickets, churn",
+      "level": 2
+    },
+    {
+      "role": "Finance",
+      "purpose": "Bookkeeping and verified ledger hygiene",
+      "level": 1
+    }
+  ],
+  "kpis": [
+    "mrr",
+    "trial_to_paid",
+    "cac",
+    "ltv",
+    "churn",
+    "uptime"
+  ],
+  "budgets": {
+    "validation": 100,
+    "monthly_cap": 500
+  },
+  "milestones": [
+    "Validate demand (landing page + waitlist/preorders)",
+    "Ship MVP",
+    "First 10 paying customers",
+    "Reach goal MRR"
+  ],
+  "kill_rules": {
+    "max_days_no_revenue": 60,
+    "validation_budget_burn_kill": 0.7
+  }
+}

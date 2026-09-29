@@ -1,0 +1,86 @@
+{
+  "name": "Agency World",
+  "business_models": [
+    "service",
+    "leadgen"
+  ],
+  "integrations": [
+    "stripe",
+    "resend",
+    "google_calendar",
+    "notion"
+  ],
+  "roles": [
+    {
+      "role": "CEO",
+      "purpose": "Manages the business: strategy, selection, kill/pivot/scale",
+      "level": 0
+    },
+    {
+      "role": "CFO",
+      "purpose": "Budgets, runway, unit economics, spend authorization",
+      "level": 0
+    },
+    {
+      "role": "Lead Generator",
+      "purpose": "Finds and qualifies prospects",
+      "level": 1
+    },
+    {
+      "role": "Sales",
+      "purpose": "Outreach, calls, proposals",
+      "level": 2
+    },
+    {
+      "role": "Account Manager",
+      "purpose": "Client comms and retention",
+      "level": 2
+    },
+    {
+      "role": "Developer",
+      "purpose": "Delivery",
+      "level": 2
+    },
+    {
+      "role": "Designer",
+      "purpose": "Delivery",
+      "level": 1
+    },
+    {
+      "role": "Copywriter",
+      "purpose": "Delivery and outreach copy",
+      "level": 1
+    },
+    {
+      "role": "Fulfillment",
+      "purpose": "Deliver client work",
+      "level": 2
+    },
+    {
+      "role": "Finance",
+      "purpose": "Bookkeeping and verified ledger hygiene",
+      "level": 1
+    }
+  ],
+  "kpis": [
+    "leads",
+    "reply_rate",
+    "close_rate",
+    "mrr",
+    "gross_margin"
+  ],
+  "budgets": {
+    "validation": 50,
+    "monthly_cap": 300
+  },
+  "milestones": [
+    "Define ICP + offer",
+    "100 qualified outreach contacts",
+    "First 3 clients",
+    "Reach goal MRR"
+  ],
+  "kill_rules": {
+    "max_days_no_revenue": 45,
+    "validation_budget_burn_kill": 0.7
+  }
+}

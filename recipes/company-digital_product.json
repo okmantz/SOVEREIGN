@@ -1,0 +1,83 @@
+{
+  "name": "Digital Product World",
+  "business_models": [
+    "digital_product"
+  ],
+  "integrations": [
+    "stripe",
+    "gumroad",
+    "resend"
+  ],
+  "roles": [
+    {
+      "role": "CEO",
+      "purpose": "Manages the business: strategy, selection, kill/pivot/scale",
+      "level": 0
+    },
+    {
+      "role": "CFO",
+      "purpose": "Budgets, runway, unit economics, spend authorization",
+      "level": 0
+    },
+    {
+      "role": "Research",
+      "purpose": "Demand research",
+      "level": 0
+    },
+    {
+      "role": "Product",
+      "purpose": "Define the product",
+      "level": 1
+    },
+    {
+      "role": "Designer",
+      "purpose": "Design",
+      "level": 1
+    },
+    {
+      "role": "Builder",
+      "purpose": "Create the product",
+      "level": 1
+    },
+    {
+      "role": "Marketing",
+      "purpose": "Acquisition",
+      "level": 2
+    },
+    {
+      "role": "Sales",
+      "purpose": "Sales pages and follow-up",
+      "level": 2
+    },
+    {
+      "role": "Support",
+      "purpose": "Customer support",
+      "level": 2
+    },
+    {
+      "role": "Finance",
+      "purpose": "Bookkeeping and verified ledger hygiene",
+      "level": 1
+    }
+  ],
+  "kpis": [
+    "sales",
+    "conversion",
+    "refund_rate",
+    "cac"
+  ],
+  "budgets": {
+    "validation": 75,
+    "monthly_cap": 300
+  },
+  "milestones": [
+    "Presell to 5 buyers",
+    "Build product",
+    "Launch",
+    "Reach goal profit"
+  ],
+  "kill_rules": {
+    "max_days_no_revenue": 45,
+    "validation_budget_burn_kill": 0.7
+  }
+}

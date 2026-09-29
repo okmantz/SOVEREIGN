@@ -1,0 +1,87 @@
+{
+  "name": "E-commerce World",
+  "business_models": [
+    "ecommerce",
+    "digital_product"
+  ],
+  "integrations": [
+    "stripe",
+    "shopify",
+    "etsy",
+    "facebook_ads",
+    "resend"
+  ],
+  "roles": [
+    {
+      "role": "CEO",
+      "purpose": "Manages the business: strategy, selection, kill/pivot/scale",
+      "level": 0
+    },
+    {
+      "role": "CFO",
+      "purpose": "Budgets, runway, unit economics, spend authorization",
+      "level": 0
+    },
+    {
+      "role": "Product Research",
+      "purpose": "Demand and margin research",
+      "level": 0
+    },
+    {
+      "role": "Supplier",
+      "purpose": "Sourcing and quotes",
+      "level": 1
+    },
+    {
+      "role": "Store Manager",
+      "purpose": "Listings and inventory",
+      "level": 2
+    },
+    {
+      "role": "Copywriter",
+      "purpose": "Listings and ads copy",
+      "level": 1
+    },
+    {
+      "role": "Ads",
+      "purpose": "Paid acquisition within caps",
+      "level": 3
+    },
+    {
+      "role": "Support",
+      "purpose": "Customer support and refunds",
+      "level": 2
+    },
+    {
+      "role": "Fulfillment",
+      "purpose": "Orders and shipping",
+      "level": 2
+    },
+    {
+      "role": "Finance",
+      "purpose": "Bookkeeping and verified ledger hygiene",
+      "level": 1
+    }
+  ],
+  "kpis": [
+    "orders",
+    "aov",
+    "gross_margin",
+    "roas",
+    "refund_rate"
+  ],
+  "budgets": {
+    "validation": 150,
+    "monthly_cap": 800
+  },
+  "milestones": [
+    "Pick product + supplier",
+    "Test listing/ads",
+    "First 10 orders",
+    "Reach goal profit"
+  ],
+  "kill_rules": {
+    "max_days_no_revenue": 45,
+    "validation_budget_burn_kill": 0.7
+  }
+}

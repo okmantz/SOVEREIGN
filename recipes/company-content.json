@@ -1,0 +1,88 @@
+{
+  "name": "Content World",
+  "business_models": [
+    "content"
+  ],
+  "integrations": [
+    "stripe",
+    "google_sheets",
+    "webhook"
+  ],
+  "roles": [
+    {
+      "role": "CEO",
+      "purpose": "Manages the business: strategy, selection, kill/pivot/scale",
+      "level": 0
+    },
+    {
+      "role": "CFO",
+      "purpose": "Budgets, runway, unit economics, spend authorization",
+      "level": 0
+    },
+    {
+      "role": "Research",
+      "purpose": "Topic and keyword research",
+      "level": 0
+    },
+    {
+      "role": "Writer",
+      "purpose": "Articles/scripts",
+      "level": 1
+    },
+    {
+      "role": "Video",
+      "purpose": "Video production",
+      "level": 1
+    },
+    {
+      "role": "Designer",
+      "purpose": "Thumbnails/graphics",
+      "level": 1
+    },
+    {
+      "role": "SEO",
+      "purpose": "On-page and distribution",
+      "level": 2
+    },
+    {
+      "role": "Distribution",
+      "purpose": "Publishing and promotion",
+      "level": 2
+    },
+    {
+      "role": "Monetization",
+      "purpose": "Affiliate, ads, sponsorship, products",
+      "level": 2
+    },
+    {
+      "role": "Analyst",
+      "purpose": "Analytics",
+      "level": 0
+    },
+    {
+      "role": "Finance",
+      "purpose": "Bookkeeping and verified ledger hygiene",
+      "level": 1
+    }
+  ],
+  "kpis": [
+    "traffic",
+    "email_subscribers",
+    "rpm",
+    "revenue_per_post"
+  ],
+  "budgets": {
+    "validation": 50,
+    "monthly_cap": 250
+  },
+  "milestones": [
+    "Pick niche + 10 topics",
+    "Publish 20 pieces",
+    "First monetization",
+    "Reach goal profit"
+  ],
+  "kill_rules": {
+    "max_days_no_revenue": 90,
+    "validation_budget_burn_kill": 0.8
+  }
+}
