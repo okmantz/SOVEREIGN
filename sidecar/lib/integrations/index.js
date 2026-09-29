@@ -14,7 +14,7 @@ const adapters = {
   stripe: require('./stripe'), shopify: require('./shopify'), etsy: require('./etsy'), meta_ads: require('./meta_ads'),
   notion: require('./notion'), email: require('./email'), calendar: google.calendar, drive: google.drive, sheets: google.sheets,
   slack: messaging.slack, discord: messaging.discord, telegram: messaging.telegram, webhook: messaging.webhook,
-  airtable: data.airtable, woocommerce: data.woocommerce, gumroad: data.gumroad,
+  comfyui: require('./comfyui'), airtable: data.airtable, woocommerce: data.woocommerce, gumroad: data.gumroad,
   portal: { label: 'World portal', source: 'portal', internal: true, blurb: 'Sends work into another world\'s Inbox. Create portals with Connect worlds in the Worlds panel.', fields: [], async test() { return { detail: 'Portal is open.' }; } }
 };
 const vaultKey = (id, key) => `conn:${id}:${key}`;
@@ -40,7 +40,8 @@ function publicConnector(c) {
   const a = adapterFor(c.kind); const set = {};
   if (a) for (const f of secretFields(a)) set[f.key] = secrets.has(vaultKey(c.id, f.key));
   const u = c.usage && c.usage.day === today() ? c.usage.n : 0;
-  return { ...c, secretsSet: set, oauthConnected: !!(a && a.oauth && oauth.connected(c.id)), sentToday: u };
+  const { workflow, ...rest } = c; // the workflow text can be large: send a flag, not the text
+  return { ...rest, hasWorkflow: !!workflow, secretsSet: set, oauthConnected: !!(a && a.oauth && oauth.connected(c.id)), sentToday: u };
 }
 function missing(c) {
   const a = adapterFor(c.kind); if (!a) return [];
